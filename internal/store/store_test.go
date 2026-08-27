@@ -183,6 +183,8 @@ func TestUIDMatchesHoweverTheNameMutated(t *testing.T) {
 		"bracket-" + part.UID,
 		"bracket-" + part.UID + ".gcode.3mf",
 		"BRACKET-" + strings.ToUpper(part.UID) + ".STL",
+		"bracket-" + part.UID + "_plate_4",
+		"camera lamp - bracket-" + part.UID + ".gcode.3mf_plate_12",
 	} {
 		err := db.RecordJob(ctx, printwatch.Job{
 			Printer: "p", ExternalID: strconv.Itoa(i), Filename: filename,
@@ -193,7 +195,7 @@ func TestUIDMatchesHoweverTheNameMutated(t *testing.T) {
 		}
 	}
 	jobs, err := db.JobsForPart(ctx, part.UID)
-	if err != nil || len(jobs) != 3 {
-		t.Fatalf("expected all 3 name shapes to match, got %d (%v)", len(jobs), err)
+	if err != nil || len(jobs) != 5 {
+		t.Fatalf("expected all 5 name shapes to match, got %d (%v)", len(jobs), err)
 	}
 }

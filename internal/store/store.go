@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS print_jobs (
 	started_at  TEXT NOT NULL,
 	ended_at    TEXT,
 	params      TEXT NOT NULL DEFAULT '{}',
-	UNIQUE (printer, external_id, started_at)
+	UNIQUE (printer, external_id)
 );
 CREATE INDEX IF NOT EXISTS print_jobs_part ON print_jobs(part_uid);
 `
@@ -465,8 +465,12 @@ func (db *DB) FieldNamesUsedBy(ctx context.Context, owner string) ([]string, err
 
 // uidInFilename spots an engraved name wherever the file went next:
 // "bracket-x7k2p9.stl" as uploaded, "bracket-x7k2p9" as a printer reports
-// the job, "bracket-x7k2p9.gcode.3mf" as a slicer left it.
-var uidInFilename = regexp.MustCompile(`(?i)-([a-z0-9]{6})(?:\.[0-9a-z]+)*$`)
+// the job, "bracket-x7k2p9.gcode.3mf" as a slicer left it. plateSuffix is
+// what Bambu appends to a job name ("..._plate_4") and comes off first.
+var (
+	uidInFilename = regexp.MustCompile(`(?i)-([a-z0-9]{6})(?:\.[0-9a-z]+)*$`)
+	plateSuffix   = regexp.MustCompile(`(?i)_plate_[0-9]+$`)
+)
 
 // RecordJob upserts a watched job and ties it to a part when it can: an
 // exact file-hash match first, the uid in an engraved filename second.
@@ -481,7 +485,8 @@ func (db *DB) RecordJob(ctx context.Context, job printwatch.Job) error {
 		}
 	}
 	if partUID == "" {
-		if match := uidInFilename.FindStringSubmatch(job.Filename); match != nil {
+		name := plateSuffix.ReplaceAllString(job.Filename, "")
+		if match := uidInFilename.FindStringSubmatch(name); match != nil {
 			uid := strings.ToLower(match[1])
 			if _, err := db.PartByUID(ctx, uid); err == nil {
 				partUID = uid
@@ -498,10 +503,14 @@ func (db *DB) RecordJob(ctx context.Context, job printwatch.Job) error {
 		ended = stamp(job.EndedAt)
 	}
 
+	// The key is (printer, external_id) and started_at is deliberately NOT
+	// updated on conflict: a watcher restarting mid-print re-reports the
+	// same job with a fresh observation time, and the row keeps the start
+	// it recorded the first time around.
 	_, err = db.sql.ExecContext(ctx, `
 		INSERT INTO print_jobs (id, printer, external_id, filename, sha256, part_uid, status, started_at, ended_at, params)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (printer, external_id, started_at) DO UPDATE SET
+		ON CONFLICT (printer, external_id) DO UPDATE SET
 			filename = excluded.filename,
 			sha256   = CASE WHEN excluded.sha256 != '' THEN excluded.sha256 ELSE print_jobs.sha256 END,
 			part_uid = CASE WHEN excluded.part_uid != '' THEN excluded.part_uid ELSE print_jobs.part_uid END,

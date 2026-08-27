@@ -11,6 +11,7 @@ package printwatch
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 )
@@ -37,6 +38,10 @@ type Job struct {
 	// string map on purpose; every printer reports differently and this is
 	// a record, not a schema.
 	Params map[string]string `json:"params,omitempty"`
+	// Slice is the slicer document a driver recovered for this job -- the
+	// full settings and the objects on the plate -- when its protocol can
+	// get one. Opaque JSON here; the server reads it.
+	Slice json.RawMessage `json:"slice,omitempty"`
 }
 
 // Statuses a Job can carry.
@@ -77,13 +82,15 @@ type Watcher struct {
 }
 
 // snapshot is the comparable part of a Job: when nothing here moved, the
-// sink has already heard everything worth saying.
+// sink has already heard everything worth saying. SliceLen stands in for
+// the slice document, whose arrival is the change worth reporting.
 type snapshot struct {
 	Filename  string
 	SHA256    string
 	Status    string
 	StartedAt time.Time
 	EndedAt   time.Time
+	SliceLen  int
 }
 
 func snapshotOf(j Job) snapshot {
@@ -93,6 +100,7 @@ func snapshotOf(j Job) snapshot {
 		Status:    j.Status,
 		StartedAt: j.StartedAt,
 		EndedAt:   j.EndedAt,
+		SliceLen:  len(j.Slice),
 	}
 }
 

@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"html/template"
 	"io"
 	"net/http"
 	"strings"
@@ -82,11 +83,24 @@ func (s *Server) projectPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// engraveInfo is what parts.engrave holds, when an engraving happened.
+// engraveInfo is what parts.engrave holds, when an engraving happened:
+// Aspects is what the person chose to engrave, Lines is how the engraver
+// packed them onto the part.
 type engraveInfo struct {
-	Lines []string `json:"lines"`
-	Face  int      `json:"face"`
-	Note  string   `json:"note"`
+	Aspects []string `json:"aspects,omitempty"`
+	Lines   []string `json:"lines"`
+	Face    int      `json:"face"`
+	Note    string   `json:"note"`
+}
+
+// aspects is what a re-engrave feeds back to the engraver; parts recorded
+// before aspects existed stored only the packed lines, which are the same
+// thing for a single-line mark.
+func (i engraveInfo) aspects() []string {
+	if len(i.Aspects) > 0 {
+		return i.Aspects
+	}
+	return i.Lines
 }
 
 func (s *Server) partPage(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +149,44 @@ func (s *Server) partPage(w http.ResponseWriter, r *http.Request) {
 		"Jobs":     jobs,
 		"Faces":    faces,
 		"Engraved": engraved,
+		"Model":    modelPayload(part.UID, partFiles, faces, engraved),
 	})
+}
+
+// modelPayload is what the 3D viewer needs: which file to show (the
+// engraved copy when there is one, since that is the physical part), and
+// the mark's frame to highlight. Parts recorded before frames existed have
+// zero vectors and simply get no highlight.
+func modelPayload(uid string, files []store.PartFile, faces []FaceOption, engraved *engraveInfo) template.JS {
+	var shown store.PartFile
+	for _, file := range files {
+		if file.Kind == store.FileEngraved {
+			shown = file
+		}
+	}
+	if shown.ID == "" {
+		for _, file := range files {
+			if file.Kind == store.FileSource {
+				shown = file
+				break
+			}
+		}
+	}
+	if shown.ID == "" {
+		return ""
+	}
+
+	payload := map[string]any{"stl": "/u/" + uid + "/file/" + shown.ID}
+	if engraved != nil && engraved.Face >= 0 && engraved.Face < len(faces) {
+		if face := faces[engraved.Face]; face.U != [3]float64{} {
+			payload["highlight"] = face
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return template.JS(raw)
 }
 
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {

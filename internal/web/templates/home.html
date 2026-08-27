@@ -32,7 +32,7 @@ Type the uid off a physical part:</p>
   <tr><th>file</th><th>printer</th><th>status</th><th>started</th></tr>
   {{range .Jobs}}
   <tr>
-    <td class="mono">{{if .PartUID}}<a href="/u/{{.PartUID}}">{{.Filename}}</a>{{else}}{{.Filename}}{{end}}</td>
+    <td class="mono"><a href="/j/{{.ID}}">{{.Filename}}</a></td>
     <td>{{.Printer}}</td>
     <td><span class="status-{{.Status}}">{{.Status}}</span></td>
     <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>

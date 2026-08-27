@@ -15,22 +15,39 @@ import (
 	"github.com/basicallysource/signum/internal/store"
 )
 
-// FaceOption is one candidate face the engraver offers, in rank order.
+// FaceOption is one candidate face the engraver offers, in rank order. The
+// frame fields let a viewer highlight the text block in 3D: Center is the
+// block's middle in model space, U runs along the text, V up it, Normal out
+// of the face, and Width/Height are the block's extent in mm.
 type FaceOption struct {
 	// Note is the human answer to "where is this": bed face, top face, wall.
 	Note string `json:"note"`
 	// Cap is the text height in mm that fits there; Depth the pocket depth.
-	Cap   float64 `json:"cap"`
-	Depth float64 `json:"depth"`
+	Cap    float64    `json:"cap"`
+	Depth  float64    `json:"depth"`
+	Center [3]float64 `json:"center"`
+	U      [3]float64 `json:"u"`
+	V      [3]float64 `json:"v"`
+	Normal [3]float64 `json:"normal"`
+	Width  float64    `json:"w"`
+	Height float64    `json:"h"`
 }
 
-// Engraver is the seam to the geometry: rank the faces of an STL, cut text
-// into one of them.
+// Plan is what the engraver decides for one part: the ranked faces, and the
+// lines the chosen aspects were packed into.
+type Plan struct {
+	Faces []FaceOption
+	Lines []string
+}
+
+// Engraver is the seam to the geometry. It takes ASPECTS -- the atomic
+// things to engrave (the uid, a filename, a field value) -- and owns packing
+// them into lines that fit the part well.
 type Engraver interface {
-	// Faces returns the ranked candidate faces where the text fits.
-	Faces(stl []byte, lines []string) ([]FaceOption, error)
-	// Cut engraves the lines into face number `face` and returns the new STL.
-	Cut(stl []byte, lines []string, face int) ([]byte, error)
+	// Plan ranks the candidate faces and reports the packed lines.
+	Plan(stl []byte, aspects []string) (Plan, error)
+	// Cut engraves the same packed lines into face number `face`.
+	Cut(stl []byte, aspects []string, face int) ([]byte, error)
 }
 
 // Server carries what the handlers need.
@@ -73,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /lookup", s.lookup)
 
 	mux.HandleFunc("GET /printers", s.printersPage)
+	mux.HandleFunc("GET /j/{job}", s.jobPage)
 
 	mux.HandleFunc("POST /api/jobs", s.recordJob)
 	mux.HandleFunc("GET /auth/callback", s.authCallback)

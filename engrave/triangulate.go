@@ -73,6 +73,9 @@ func triangulateWithHoles(outer []int, holes [][]int, at func(int) Vec2) ([][3]i
 		if err != nil {
 			return nil, err
 		}
+		if debugTriangulate {
+			fmt.Printf("BRIDGE hole=%d seg=(%.6f,%.6f)->(%.6f,%.6f)\n", hi, bridge[0].X, bridge[0].Y, bridge[1].X, bridge[1].Y)
+		}
 		obstacles = append(obstacles, bridge)
 	}
 	return earClip(ring, at)
@@ -223,6 +226,21 @@ func earClip(ring []int, at func(int) Vec2) ([][3]int, error) {
 			i = next[i]
 		}
 		if !found {
+			if debugTriangulate {
+				fmt.Printf("STUCK remaining=%d\n", remaining)
+				j := i
+				for {
+					fmt.Printf("  id=%d pos=(%.6f,%.6f)\n", ring[j], at(ring[j]).X, at(ring[j]).Y)
+					j = next[j]
+					if j == i {
+						break
+					}
+				}
+				fmt.Printf("FULL RING n=%d\n", n)
+				for k := range n {
+					fmt.Printf("  [%d] id=%d pos=(%.6f,%.6f)\n", k, ring[k], at(ring[k]).X, at(ring[k]).Y)
+				}
+			}
 			return nil, fmt.Errorf("engrave: ear clipping stuck with %d vertices left", remaining)
 		}
 	}

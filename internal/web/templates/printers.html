@@ -11,7 +11,7 @@ machines, or the desktop app.</p>
   <tr>
     <td>{{.Printer}}</td>
     <td class="mono">{{if .PartUID}}<a href="/u/{{.PartUID}}">{{.PartUID}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="mono">{{.Filename}}</td>
+    <td class="mono"><a href="/j/{{.ID}}">{{.Filename}}</a></td>
     <td><span class="status-{{.Status}}">{{.Status}}</span>{{with index .Params "percent"}} <span class="muted">{{.}}%</span>{{end}}</td>
     <td class="muted">{{with index .Params "filament"}}{{.}} · {{end}}{{with index .Params "nozzle"}}{{.}} · {{end}}{{with index .Params "bed"}}{{.}} bed · {{end}}{{with index .Params "layers"}}{{.}} layers{{end}}</td>
     <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>

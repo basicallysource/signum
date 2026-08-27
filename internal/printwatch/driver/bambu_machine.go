@@ -273,6 +273,14 @@ func (m *bambuMachine) params() map[string]string {
 	return params
 }
 
+// attachSlice hands a fetched slicer document to the job it belongs to.
+func (m *bambuMachine) attachSlice(externalID string, doc []byte) {
+	if job, ok := m.jobs[externalID]; ok {
+		job.Slice = doc
+		m.jobs[externalID] = job
+	}
+}
+
 // Jobs is the current snapshot, oldest first.
 func (m *bambuMachine) Jobs() []printwatch.Job {
 	jobs := make([]printwatch.Job, 0, len(m.order))

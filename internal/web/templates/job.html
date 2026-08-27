@@ -1,0 +1,49 @@
+{{template "top" .}}
+<p class="muted"><a href="/printers">printers</a> / print</p>
+<h1>{{.Job.Filename}}</h1>
+<p class="muted">
+  {{.Job.Printer}} · <span class="status-{{.Job.Status}}">{{.Job.Status}}</span>
+  {{with index .Job.Params "percent"}} {{.}}%{{end}}
+  · started {{.Job.StartedAt.Format "2006-01-02 15:04"}}
+  {{if not .Job.EndedAt.IsZero}} · ended {{.Job.EndedAt.Format "15:04"}}{{end}}
+  {{if .Plate}} · plate {{.Plate}}{{end}}
+</p>
+
+{{if .Job.Params}}
+<h2>as printed</h2>
+<table>
+  {{range $key, $value := .Job.Params}}
+  <tr><td class="muted" style="width:12rem">{{$key}}</td><td>{{$value}}</td></tr>
+  {{end}}
+</table>
+{{end}}
+
+<h2>parts on this plate</h2>
+{{if .Objects}}
+<table>
+  <tr><th>object</th><th>part</th><th>its own settings</th></tr>
+  {{range .Objects}}
+  <tr>
+    <td class="mono">{{.Name}}</td>
+    <td class="mono">{{if .PartUID}}<a href="/u/{{.PartUID}}">{{.PartUID}}</a>{{else}}<span class="muted">not tracked</span>{{end}}</td>
+    <td>{{if .Overrides}}{{range $key, $value := .Overrides}}<span class="changed">{{$key}}={{$value}}</span> {{end}}{{else}}<span class="muted">plate defaults</span>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">The watcher has not recovered this print's project file
+(yet); only what the printer reports live is known.</p>
+{{end}}
+
+{{if .Settings}}
+<h2>slicer settings <span class="muted">({{.Changed}} changed from defaults, <span class="changed">marked</span>)</span></h2>
+<table>
+  {{range .Settings}}
+  <tr>
+    <td class="muted mono" style="width:18rem">{{.Key}}</td>
+    <td {{if .Changed}}class="changed"{{end}}>{{.Value}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
+{{template "bottom"}}

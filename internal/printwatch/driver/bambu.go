@@ -31,7 +31,16 @@ type Bambu struct {
 	mu      sync.Mutex
 	machine *bambuMachine
 	client  mqtt.Client
+	// The slicer document for each job is fetched from the printer's own
+	// storage, once, in the background; a few failures are retried on later
+	// polls and then let go.
+	fetching map[string]bool
+	attempts map[string]int
 }
+
+// sliceAttempts is how many times a project fetch is retried before the
+// job is left without its document.
+const sliceAttempts = 3
 
 const (
 	bambuMQTTPort       = 8883
@@ -58,7 +67,44 @@ func (b *Bambu) Poll(ctx context.Context) ([]printwatch.Job, error) {
 	if !b.client.IsConnectionOpen() {
 		return nil, fmt.Errorf("driver: %s (%s) is not answering", b.PrinterName, b.Host)
 	}
-	return b.machine.Jobs(), nil
+
+	jobs := b.machine.Jobs()
+	for _, job := range jobs {
+		b.maybeFetchSlice(job)
+	}
+	return jobs, nil
+}
+
+// maybeFetchSlice starts one background fetch of a printing job's project.
+// Called under b.mu.
+func (b *Bambu) maybeFetchSlice(job printwatch.Job) {
+	if job.Status != printwatch.StatusPrinting || len(job.Slice) > 0 ||
+		job.Filename == "" {
+		return
+	}
+	if b.fetching == nil {
+		b.fetching = make(map[string]bool)
+		b.attempts = make(map[string]int)
+	}
+	if b.fetching[job.ExternalID] || b.attempts[job.ExternalID] >= sliceAttempts {
+		return
+	}
+	b.fetching[job.ExternalID] = true
+	b.attempts[job.ExternalID]++
+
+	go func(id, filename string) {
+		doc, err := fetchSliceDoc(b.Host, b.AccessCode, filename)
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.fetching[id] = false
+		if err != nil {
+			b.logger().Warn("project fetch failed", "printer", b.PrinterName,
+				"job", filename, "attempt", b.attempts[id], "error", err)
+			return
+		}
+		b.machine.attachSlice(id, doc)
+		b.logger().Info("slicer settings recovered", "printer", b.PrinterName, "job", filename)
+	}(job.ExternalID, job.Filename)
 }
 
 // connect starts the long-lived client. Called under b.mu.

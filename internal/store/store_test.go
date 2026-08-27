@@ -199,3 +199,57 @@ func TestUIDMatchesHoweverTheNameMutated(t *testing.T) {
 		t.Fatalf("expected all 5 name shapes to match, got %d (%v)", len(jobs), err)
 	}
 }
+
+func TestSliceObjectsBecomePartPrintEvents(t *testing.T) {
+	db := open(t)
+	ctx := context.Background()
+
+	project, _ := db.CreateProject(ctx, "", "me", "lamp")
+	arm, _ := db.CreatePart(ctx, Part{ProjectID: project.ID, Name: "arm", CreatedBy: "me"}, nil, nil)
+
+	// The job arrives first with no document: the plate name matches nothing.
+	job := printwatch.Job{
+		Printer: "a1", ExternalID: "77", Filename: "old project_plate_5",
+		Status: printwatch.StatusPrinting, StartedAt: time.Now().UTC(),
+	}
+	if err := db.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+
+	// The document lands on a later report: objects appear, and since
+	// exactly one resolves to a part, the job adopts it.
+	job.Slice = []byte(`{"plate":5,"objects":[
+		{"name":"arm-` + arm.UID + `.stl","overrides":{"sparse_infill_density":"40%"}},
+		{"name":"stranger.stl"}]}`)
+	if err := db.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := db.JobsForPart(ctx, arm.UID)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("part print events: %v %v", jobs, err)
+	}
+	if jobs[0].PartUID != arm.UID {
+		t.Fatalf("job did not adopt its only tracked part: %+v", jobs[0])
+	}
+
+	objects, err := db.ObjectsForJob(ctx, jobs[0].ID)
+	if err != nil || len(objects) != 2 {
+		t.Fatalf("objects: %v %v", objects, err)
+	}
+	if objects[0].PartUID != arm.UID || objects[0].Overrides["sparse_infill_density"] != "40%" {
+		t.Fatalf("object link/overrides wrong: %+v", objects[0])
+	}
+	if objects[1].PartUID != "" {
+		t.Fatalf("a stranger matched: %+v", objects[1])
+	}
+
+	// A re-report replaces, never duplicates, the events.
+	if err := db.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	objects, _ = db.ObjectsForJob(ctx, jobs[0].ID)
+	if len(objects) != 2 {
+		t.Fatalf("objects duplicated: %d", len(objects))
+	}
+}

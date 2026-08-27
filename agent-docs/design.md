@@ -51,8 +51,9 @@ never be a separate stylesheet.
   600). Section headings are small caps-style labels: 0.8rem, uppercase,
   letter-spaced, `--muted`. Identifiers, hashes, uids, filenames are always
   `--mono`.
-- **Layout**: content column capped (40rem for prose-like pages, wider for
-  tables and 3D views), centered, 8px spacing grid. Whitespace separates
+- **Layout**: one centered content column capped at 72rem, 8px spacing
+  grid. On small screens, wide tables scroll inside themselves; the page
+  never scrolls horizontally. Whitespace separates
   sections; rules (`1px solid var(--line)`) separate rows.
 - **Buttons**: 1px `--line` outline, transparent fill, `--radius`. The one
   primary action per screen inverts (`--fg` fill, `--bg` text). Destructive

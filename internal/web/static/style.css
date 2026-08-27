@@ -29,8 +29,8 @@
 
 body {
   margin: 0 auto;
-  max-width: 52rem;
-  padding: 2rem 1.25rem 4rem;
+  max-width: 72rem;
+  padding: 2rem 1.5rem 4rem;
   background: var(--bg);
   color: var(--fg);
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -100,3 +100,27 @@ td.num, th.num { text-align: right; }
 .status-succeeded { color: var(--ok); }
 .status-failed    { color: var(--danger); }
 .status-canceled  { color: var(--muted); }
+
+.changed { color: var(--accent); font-weight: 600; }
+
+/* The part viewer: a quiet CAD backdrop, no chrome. */
+#viewer {
+  margin: 1rem 0 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #dde4ec 0%, #f3f5f8 100%);
+  overflow: hidden;
+}
+#viewer canvas { display: block; }
+@media (prefers-color-scheme: dark) {
+  #viewer { background: linear-gradient(180deg, #1c232c 0%, #12161c 100%); }
+}
+
+/* Small screens: tighter chrome, and wide tables scroll inside themselves
+   rather than stretching the page. */
+@media (max-width: 640px) {
+  body { padding: 1.25rem 0.9rem 3rem; }
+  nav { margin-bottom: 1.25rem; }
+  table { display: block; overflow-x: auto; }
+  button, input[type="text"], select { min-height: 2.6rem; }
+}

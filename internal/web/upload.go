@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/basicallysource/signum/internal/store"
@@ -88,7 +89,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	lineChoices := engraveChoices{
 		UID:      r.FormValue("engrave_uid") != "",
 		Filename: r.FormValue("engrave_filename") != "",
-		Version:  strings.TrimSpace(r.FormValue("engrave_version_text")),
+		Fields:   map[string]bool{},
+	}
+	for _, name := range r.Form["engrave_field"] {
+		lineChoices.Fields[name] = true
 	}
 
 	var firstUID string
@@ -110,25 +114,41 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/p/"+project.ID, http.StatusSeeOther)
 }
 
-// engraveChoices is the checkboxes: which lines go into the part.
+// engraveChoices is the checkboxes: which aspects go onto the part. Fields
+// is checked by field name; the value engraved is the field's value.
 type engraveChoices struct {
 	UID      bool
 	Filename bool
-	Version  string
+	Fields   map[string]bool
 }
 
-func (c engraveChoices) lines(uid, filename string) []string {
-	var lines []string
+// engraveable is what an aspect must look like to be cut: printable ASCII
+// (the engraver itself drops anything its font truly lacks), short enough
+// to ever fit a face.
+var engraveable = regexp.MustCompile(`^[ -~]{1,40}$`)
+
+func (c engraveChoices) aspects(uid, filename string, fields []store.Field) []string {
+	var aspects []string
 	if c.UID {
-		lines = append(lines, uid)
+		aspects = append(aspects, uid)
 	}
 	if c.Filename {
-		lines = append(lines, strings.TrimSuffix(filename, path.Ext(filename)))
+		aspects = append(aspects, strings.TrimSuffix(filename, path.Ext(filename)))
 	}
-	if c.Version != "" {
-		lines = append(lines, c.Version)
+	for _, field := range fields {
+		if c.Fields[field.Name] && engraveable.MatchString(field.Value) {
+			aspects = append(aspects, field.Value)
+		}
 	}
-	return lines
+	// Something un-engraveable that slipped through (a checked URL field, a
+	// character the font lacks) is dropped rather than sinking the upload.
+	kept := aspects[:0]
+	for _, aspect := range aspects {
+		if engraveable.MatchString(aspect) {
+			kept = append(kept, aspect)
+		}
+	}
+	return kept
 }
 
 // createPart stores one STL as a part: blob, row, faces, engraving.
@@ -150,23 +170,23 @@ func (s *Server) createPart(r *http.Request, project store.Project, stl incoming
 		return "", err
 	}
 
-	lines := choices.lines(part.UID, stl.filename)
-	if len(lines) == 0 {
+	aspects := choices.aspects(part.UID, stl.filename, fields)
+	if len(aspects) == 0 {
 		return part.UID, nil
 	}
 
 	// A part whose geometry offers no face is still tracked; it just is not
 	// engraved, and the page says so.
-	faces, err := s.Engrave.Faces(stl.content, lines)
-	if err != nil || len(faces) == 0 {
+	plan, err := s.Engrave.Plan(stl.content, aspects)
+	if err != nil || len(plan.Faces) == 0 {
 		s.logger().Info("no engraveable face", "part", part.UID, "file", stl.filename, "error", err)
 		return part.UID, nil
 	}
-	if encoded, err := json.Marshal(faces); err == nil {
+	if encoded, err := json.Marshal(plan.Faces); err == nil {
 		s.Store.SetPlacements(r.Context(), part.UID, string(encoded))
 	}
 
-	if err := s.engraveOnto(r, part.UID, stl, lines, faces, 0); err != nil {
+	if err := s.engraveOnto(r, part.UID, stl, aspects, plan, 0); err != nil {
 		s.logger().Warn("engrave failed", "part", part.UID, "error", err)
 	}
 	return part.UID, nil
@@ -174,9 +194,9 @@ func (s *Server) createPart(r *http.Request, project store.Project, stl incoming
 
 // engraveOnto cuts and stores the engraved copy, replacing any previous one.
 func (s *Server) engraveOnto(r *http.Request, uid string, stl incoming,
-	lines []string, faces []FaceOption, face int) error {
+	aspects []string, plan Plan, face int) error {
 
-	engraved, err := s.Engrave.Cut(stl.content, lines, face)
+	engraved, err := s.Engrave.Cut(stl.content, aspects, face)
 	if err != nil {
 		return err
 	}
@@ -199,12 +219,12 @@ func (s *Server) engraveOnto(r *http.Request, uid string, stl incoming,
 		return err
 	}
 
-	info := engraveInfo{Lines: lines, Face: face, Note: faces[face].Note}
+	info := engraveInfo{Aspects: aspects, Lines: plan.Lines, Face: face, Note: plan.Faces[face].Note}
 	encoded, _ := json.Marshal(info)
 	return s.Store.SetEngrave(r.Context(), uid, string(encoded))
 }
 
-// reEngrave cuts the same lines into a different face.
+// reEngrave cuts the same aspects into a different face.
 func (s *Server) reEngrave(w http.ResponseWriter, r *http.Request) {
 	part, err := s.Store.PartByUID(r.Context(), r.PathValue("uid"))
 	if err != nil {
@@ -212,19 +232,8 @@ func (s *Server) reEngrave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var faces []FaceOption
-	if json.Unmarshal([]byte(part.Placements), &faces) != nil || len(faces) == 0 {
-		s.fail(w, r, http.StatusBadRequest, "this part has no engraveable faces", nil)
-		return
-	}
-	face := 0
-	if _, err := parseInt(r.FormValue("face"), &face); err != nil || face < 0 || face >= len(faces) {
-		s.fail(w, r, http.StatusBadRequest, "no such face", err)
-		return
-	}
-
 	var info engraveInfo
-	if part.Engrave == "" || json.Unmarshal([]byte(part.Engrave), &info) != nil || len(info.Lines) == 0 {
+	if part.Engrave == "" || json.Unmarshal([]byte(part.Engrave), &info) != nil || len(info.aspects()) == 0 {
 		s.fail(w, r, http.StatusBadRequest, "this part was saved without engraving", nil)
 		return
 	}
@@ -235,7 +244,25 @@ func (s *Server) reEngrave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.engraveOnto(r, part.UID, source, info.Lines, faces, face); err != nil {
+	// Re-planning keeps face indexes honest against the geometry (and
+	// refreshes the stored candidates for parts recorded before the frame
+	// data existed).
+	plan, err := s.Engrave.Plan(source.content, info.aspects())
+	if err != nil || len(plan.Faces) == 0 {
+		s.fail(w, r, http.StatusBadRequest, "this part has no engraveable faces", err)
+		return
+	}
+	if encoded, err := json.Marshal(plan.Faces); err == nil {
+		s.Store.SetPlacements(r.Context(), part.UID, string(encoded))
+	}
+
+	face := 0
+	if _, err := parseInt(r.FormValue("face"), &face); err != nil || face < 0 || face >= len(plan.Faces) {
+		s.fail(w, r, http.StatusBadRequest, "no such face", err)
+		return
+	}
+
+	if err := s.engraveOnto(r, part.UID, source, info.aspects(), plan, face); err != nil {
 		s.fail(w, r, http.StatusInternalServerError, "could not engrave that face", err)
 		return
 	}

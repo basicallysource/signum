@@ -23,6 +23,7 @@ import (
 const (
 	sessionCookie = "signum_session"
 	stateCookie   = "signum_state"
+	destCookie    = "signum_dest"
 	// sessionLife matches the token's own 90-day horizon loosely; the
 	// cookie dying first just means signing in again.
 	sessionLife = 60 * 24 * time.Hour
@@ -89,6 +90,21 @@ func (s *Server) startSignIn(w http.ResponseWriter, r *http.Request) {
 		Secure:   strings.HasPrefix(s.BaseURL, "https://"),
 	})
 
+	// Remember where the person was going, so signing in lands them there
+	// and not back at the front door.
+	if dest := r.URL.RequestURI(); r.Method == http.MethodGet &&
+		strings.HasPrefix(dest, "/") && !strings.HasPrefix(dest, "//") && len(dest) < 512 {
+		http.SetCookie(w, &http.Cookie{
+			Name:     destCookie,
+			Value:    url.QueryEscape(dest),
+			Path:     "/auth",
+			MaxAge:   600,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   strings.HasPrefix(s.BaseURL, "https://"),
+		})
+	}
+
 	query := url.Values{
 		"redirect_uri": {s.callbackURL()},
 		"state":        {state},
@@ -123,7 +139,16 @@ func (s *Server) authCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   strings.HasPrefix(s.BaseURL, "https://"),
 	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+
+	dest := "/"
+	if cookie, err := r.Cookie(destCookie); err == nil {
+		if unescaped, err := url.QueryUnescape(cookie.Value); err == nil &&
+			strings.HasPrefix(unescaped, "/") && !strings.HasPrefix(unescaped, "//") {
+			dest = unescaped
+		}
+		http.SetCookie(w, &http.Cookie{Name: destCookie, Path: "/auth", MaxAge: -1})
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 // exchange spends the one-time code at the identity service.

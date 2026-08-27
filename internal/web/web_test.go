@@ -23,15 +23,18 @@ import (
 // layer: the geometry has its own tests in the engrave package.
 type fakeEngraver struct{}
 
-func (fakeEngraver) Faces(stl []byte, lines []string) ([]FaceOption, error) {
-	return []FaceOption{
-		{Note: "bed face", Cap: 3.5, Depth: 0.6},
-		{Note: "top face", Cap: 3.5, Depth: 0.6},
+func (fakeEngraver) Plan(stl []byte, aspects []string) (Plan, error) {
+	return Plan{
+		Faces: []FaceOption{
+			{Note: "bed face", Cap: 3.5, Depth: 0.6},
+			{Note: "top face", Cap: 3.5, Depth: 0.6},
+		},
+		Lines: aspects,
 	}, nil
 }
 
-func (fakeEngraver) Cut(stl []byte, lines []string, face int) ([]byte, error) {
-	return append(append([]byte{}, stl...), []byte("\n; engraved "+strings.Join(lines, " "))...), nil
+func (fakeEngraver) Cut(stl []byte, aspects []string, face int) ([]byte, error) {
+	return append(append([]byte{}, stl...), []byte("\n; engraved "+strings.Join(aspects, " "))...), nil
 }
 
 func newTestServer(t *testing.T) (*httptest.Server, *Server) {
@@ -84,6 +87,8 @@ func TestUploadEngraveLookup(t *testing.T) {
 	io.WriteString(part, "solid bracket\nendsolid bracket\n")
 	form.WriteField("version", "v3")
 	form.WriteField("engrave_uid", "on")
+	form.WriteField("engrave_field", "version")
+	form.WriteField("engrave_field", "infill")
 	form.WriteField("field_name", "infill")
 	form.WriteField("field_value", "40%")
 	form.Close()
@@ -129,8 +134,8 @@ func TestUploadEngraveLookup(t *testing.T) {
 		t.Fatalf("no engraved file was stored: %+v", files)
 	}
 	engraved := get(t, ts, "/u/"+uid+"/file/"+engravedID)
-	if !strings.Contains(engraved, "; engraved "+uid) {
-		t.Fatalf("engraved file lacks the mark:\n%s", engraved)
+	if !strings.Contains(engraved, "; engraved "+uid+" v3 40%") {
+		t.Fatalf("engraved file lacks the chosen aspects:\n%s", engraved)
 	}
 
 	// Moving the engraving to another face keeps exactly one engraved file.

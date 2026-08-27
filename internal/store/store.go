@@ -71,7 +71,8 @@ type Field struct {
 	Value string
 }
 
-// PrintJob is a job as the database keeps it.
+// PrintJob is a job as the database keeps it. Slice is the slicer document
+// a watcher pulled off the printer, verbatim JSON; empty until one arrives.
 type PrintJob struct {
 	ID         string
 	Printer    string
@@ -83,6 +84,16 @@ type PrintJob struct {
 	StartedAt  time.Time
 	EndedAt    time.Time
 	Params     map[string]string
+	Slice      string
+}
+
+// JobObject is one object on a printed plate: a part print event. A plate
+// can carry several parts, each with its own setting overrides.
+type JobObject struct {
+	JobID     string
+	Name      string
+	PartUID   string
+	Overrides map[string]string
 }
 
 // DB is the open database.
@@ -164,9 +175,19 @@ CREATE TABLE IF NOT EXISTS print_jobs (
 	started_at  TEXT NOT NULL,
 	ended_at    TEXT,
 	params      TEXT NOT NULL DEFAULT '{}',
+	slice       TEXT NOT NULL DEFAULT '',
 	UNIQUE (printer, external_id)
 );
 CREATE INDEX IF NOT EXISTS print_jobs_part ON print_jobs(part_uid);
+CREATE TABLE IF NOT EXISTS print_job_objects (
+	job_id   TEXT NOT NULL REFERENCES print_jobs(id),
+	position INTEGER NOT NULL,
+	name     TEXT NOT NULL,
+	part_uid TEXT NOT NULL DEFAULT '',
+	overrides TEXT NOT NULL DEFAULT '{}',
+	PRIMARY KEY (job_id, position)
+);
+CREATE INDEX IF NOT EXISTS print_job_objects_part ON print_job_objects(part_uid);
 `
 
 // -- projects ---------------------------------------------------------------
@@ -508,26 +529,135 @@ func (db *DB) RecordJob(ctx context.Context, job printwatch.Job) error {
 	// same job with a fresh observation time, and the row keeps the start
 	// it recorded the first time around.
 	_, err = db.sql.ExecContext(ctx, `
-		INSERT INTO print_jobs (id, printer, external_id, filename, sha256, part_uid, status, started_at, ended_at, params)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO print_jobs (id, printer, external_id, filename, sha256, part_uid, status, started_at, ended_at, params, slice)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (printer, external_id) DO UPDATE SET
 			filename = excluded.filename,
 			sha256   = CASE WHEN excluded.sha256 != '' THEN excluded.sha256 ELSE print_jobs.sha256 END,
 			part_uid = CASE WHEN excluded.part_uid != '' THEN excluded.part_uid ELSE print_jobs.part_uid END,
 			status   = excluded.status,
 			ended_at = excluded.ended_at,
-			params   = excluded.params`,
+			params   = excluded.params,
+			slice    = CASE WHEN excluded.slice != '' THEN excluded.slice ELSE print_jobs.slice END`,
 		mustID(), job.Printer, job.ExternalID, job.Filename, job.SHA256, partUID,
-		job.Status, stamp(job.StartedAt), ended, string(params))
+		job.Status, stamp(job.StartedAt), ended, string(params), string(job.Slice))
 	if err != nil {
 		return fmt.Errorf("store: record job: %w", err)
+	}
+	if len(job.Slice) > 0 {
+		return db.recordObjects(ctx, job)
 	}
 	return nil
 }
 
-// JobsForPart lists every print of a part, newest first.
+// recordObjects turns a slicer document into part print events: one row per
+// object on the plate, tied to the part its name carries. When exactly one
+// object resolves, the job as a whole adopts that part too.
+func (db *DB) recordObjects(ctx context.Context, job printwatch.Job) error {
+	var jobID string
+	err := db.sql.QueryRowContext(ctx,
+		`SELECT id FROM print_jobs WHERE printer = ? AND external_id = ?`,
+		job.Printer, job.ExternalID).Scan(&jobID)
+	if err != nil {
+		return fmt.Errorf("store: find job for objects: %w", err)
+	}
+
+	var doc struct {
+		Objects []struct {
+			Name      string            `json:"name"`
+			Overrides map[string]string `json:"overrides"`
+		} `json:"objects"`
+	}
+	if err := json.Unmarshal(job.Slice, &doc); err != nil || len(doc.Objects) == 0 {
+		return nil
+	}
+
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin objects: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM print_job_objects WHERE job_id = ?`, jobID); err != nil {
+		return fmt.Errorf("store: clear objects: %w", err)
+	}
+
+	matched := map[string]bool{}
+	for position, object := range doc.Objects {
+		uid := ""
+		name := plateSuffix.ReplaceAllString(object.Name, "")
+		if match := uidInFilename.FindStringSubmatch(name); match != nil {
+			candidate := strings.ToLower(match[1])
+			if _, err := db.PartByUID(ctx, candidate); err == nil {
+				uid = candidate
+				matched[uid] = true
+			}
+		}
+		overrides, _ := json.Marshal(object.Overrides)
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO print_job_objects (job_id, position, name, part_uid, overrides)
+			 VALUES (?, ?, ?, ?, ?)`,
+			jobID, position, object.Name, uid, string(overrides)); err != nil {
+			return fmt.Errorf("store: add object: %w", err)
+		}
+	}
+
+	if len(matched) == 1 {
+		for uid := range matched {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE print_jobs SET part_uid = ? WHERE id = ? AND part_uid = ''`,
+				uid, jobID); err != nil {
+				return fmt.Errorf("store: adopt part: %w", err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit objects: %w", err)
+	}
+	return nil
+}
+
+// ObjectsForJob lists a job's part print events in plate order.
+func (db *DB) ObjectsForJob(ctx context.Context, jobID string) ([]JobObject, error) {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT job_id, name, part_uid, overrides FROM print_job_objects
+		 WHERE job_id = ? ORDER BY position`, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("store: objects for %s: %w", jobID, err)
+	}
+	defer rows.Close()
+	var objects []JobObject
+	for rows.Next() {
+		var o JobObject
+		var overrides string
+		if err := rows.Scan(&o.JobID, &o.Name, &o.PartUID, &overrides); err != nil {
+			return nil, fmt.Errorf("store: read object: %w", err)
+		}
+		json.Unmarshal([]byte(overrides), &o.Overrides)
+		objects = append(objects, o)
+	}
+	return objects, rows.Err()
+}
+
+// JobByID returns one job, or ErrNotFound.
+func (db *DB) JobByID(ctx context.Context, id string) (PrintJob, error) {
+	jobs, err := db.jobs(ctx, `WHERE id = ?`, id)
+	if err != nil {
+		return PrintJob{}, err
+	}
+	if len(jobs) == 0 {
+		return PrintJob{}, ErrNotFound
+	}
+	return jobs[0], nil
+}
+
+// JobsForPart lists every print of a part, newest first: jobs matched
+// whole, and jobs where the part was one object on the plate.
 func (db *DB) JobsForPart(ctx context.Context, uid string) ([]PrintJob, error) {
-	return db.jobs(ctx, `WHERE part_uid = ? ORDER BY started_at DESC`, uid)
+	return db.jobs(ctx, `WHERE part_uid = ?1
+		OR id IN (SELECT job_id FROM print_job_objects WHERE part_uid = ?1)
+		ORDER BY started_at DESC`, uid)
 }
 
 // RecentJobs lists the latest activity across every printer.
@@ -540,7 +670,7 @@ func (db *DB) RecentJobs(ctx context.Context, limit int) ([]PrintJob, error) {
 
 func (db *DB) jobs(ctx context.Context, tail string, args ...any) ([]PrintJob, error) {
 	rows, err := db.sql.QueryContext(ctx,
-		`SELECT id, printer, external_id, filename, sha256, part_uid, status, started_at, ended_at, params
+		`SELECT id, printer, external_id, filename, sha256, part_uid, status, started_at, ended_at, params, slice
 		 FROM print_jobs `+tail, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: list jobs: %w", err)
@@ -554,7 +684,7 @@ func (db *DB) jobs(ctx context.Context, tail string, args ...any) ([]PrintJob, e
 		var ended sql.NullString
 		var params string
 		if err := rows.Scan(&j.ID, &j.Printer, &j.ExternalID, &j.Filename, &j.SHA256,
-			&j.PartUID, &j.Status, &started, &ended, &params); err != nil {
+			&j.PartUID, &j.Status, &started, &ended, &params, &j.Slice); err != nil {
 			return nil, fmt.Errorf("store: read job: %w", err)
 		}
 		j.StartedAt = parseStamp(started)

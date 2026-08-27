@@ -8,9 +8,19 @@ tracked part with its own uid; the description below applies to all of them.</p>
   <input type="file" name="files" multiple accept=".stl,.zip" required>
 
   <h2>describe</h2>
+  <p class="muted">Check ✎ on anything that should also be engraved into the
+  part; the engraver packs the checked aspects into lines that fit the face.</p>
   <div class="grid">
-    <label>version <input type="text" name="version" placeholder="v3"></label>
-    <label>variant <input type="text" name="variant" placeholder="left"></label>
+    <label>version
+      <span class="row"><input type="text" name="version" placeholder="v3">
+      <label class="check engrave-check" title="engrave this">
+        <input type="checkbox" name="engrave_field" value="version"> ✎</label></span>
+    </label>
+    <label>variant
+      <span class="row"><input type="text" name="variant" placeholder="left">
+      <label class="check engrave-check" title="engrave this">
+        <input type="checkbox" name="engrave_field" value="variant"> ✎</label></span>
+    </label>
     <label>onshape part studio <input type="text" name="onshape_studio" placeholder="https://…"></label>
     <label>onshape version <input type="text" name="onshape_version"></label>
   </div>
@@ -27,9 +37,9 @@ tracked part with its own uid; the description below applies to all of them.</p>
   <h2>engrave</h2>
   <label class="check"><input type="checkbox" name="engrave_uid" checked> the uid</label>
   <label class="check"><input type="checkbox" name="engrave_filename"> the filename</label>
-  <label>a version line <input type="text" name="engrave_version_text" placeholder="leave empty for none"></label>
-  <p class="muted">The uid goes on the best face found; you can move it to
-  another face from the part page afterwards.</p>
+  <p class="muted">Everything checked goes on the best face found, stacked
+  into lines when that fits better; move it to another face from the part
+  page afterwards.</p>
 
   <div class="row">
     <button class="primary">Upload and engrave</button>
@@ -40,10 +50,21 @@ tracked part with its own uid; the description below applies to all of them.</p>
 function addField() {
   const row = document.createElement('div');
   row.className = 'row';
-  row.innerHTML =
-    '<input type="text" name="field_name" placeholder="field" list="field-suggestions">' +
-    '<input type="text" name="field_value" placeholder="value">' +
-    '<button type="button" onclick="this.parentNode.remove()">Remove</button>';
+  const name = document.createElement('input');
+  name.type = 'text'; name.name = 'field_name';
+  name.placeholder = 'field'; name.setAttribute('list', 'field-suggestions');
+  const value = document.createElement('input');
+  value.type = 'text'; value.name = 'field_value'; value.placeholder = 'value';
+  const engrave = document.createElement('label');
+  engrave.className = 'check engrave-check'; engrave.title = 'engrave this';
+  const box = document.createElement('input');
+  box.type = 'checkbox'; box.name = 'engrave_field';
+  name.addEventListener('input', () => { box.value = name.value.trim(); });
+  engrave.append(box, ' ✎');
+  const remove = document.createElement('button');
+  remove.type = 'button'; remove.textContent = 'Remove';
+  remove.addEventListener('click', () => row.remove());
+  row.append(name, value, engrave, remove);
   document.getElementById('custom-fields').append(row);
 }
 </script>

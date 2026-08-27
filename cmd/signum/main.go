@@ -141,7 +141,7 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		logger.Info("tracker listening", "version", version, "addr", *addr, "data", dir, "desktop", desktop)
+		logger.Info("signum listening", "version", version, "addr", *addr, "data", dir, "desktop", desktop)
 		if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("serve", "error", err)
 			os.Exit(1)

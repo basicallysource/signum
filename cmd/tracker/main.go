@@ -82,6 +82,7 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	addr := flags.String("addr", envOr("TRACKER_ADDR", defaultAddr), "listen address")
 	data := flags.String("data", envOr("TRACKER_DATA", ""), "data directory (database and blobs)")
 	identity := flags.String("identity", envOr("TRACKER_IDENTITY", ""), "identity service base URL; empty runs open")
+	base := flags.String("base", envOr("TRACKER_BASE", ""), "this instance's public base URL, for the sign-in redirect")
 	mocks := repeated{}
 	flags.Var(&mocks, "mock", "simulated printer, name=jobs.json (repeatable)")
 	flags.Parse(args)
@@ -108,11 +109,16 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	}
 	defer db.Close()
 
+	if *identity != "" && *base == "" {
+		return errors.New("an identity service needs --base (or TRACKER_BASE) for the sign-in redirect")
+	}
+
 	server := &web.Server{
 		Store:    db,
 		Blobs:    blob.Dir{Root: filepath.Join(dir, "blobs")},
 		Engrave:  newEngraver(filepath.Join(dir, "fonts")),
 		Identity: strings.TrimSuffix(*identity, "/"),
+		BaseURL:  strings.TrimSuffix(*base, "/"),
 		Logger:   logger,
 	}
 

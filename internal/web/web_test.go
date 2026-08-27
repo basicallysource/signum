@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -244,4 +245,147 @@ func get(t *testing.T, ts *httptest.Server, path string) string {
 		t.Fatalf("GET %s answered %d:\n%s", path, resp.StatusCode, raw)
 	}
 	return string(raw)
+}
+
+// fakeIdentity is the identity service boiled down to exchange + whoami.
+func fakeIdentity(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/exchange", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Code        string `json:"code"`
+			RedirectURI string `json:"redirect_uri"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Code != "good-code" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, `{"token":"bsid_aa_bb","account":"acct1","handle":"spencer"}`)
+	})
+	mux.HandleFunc("GET /v1/whoami", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer bsid_aa_bb" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, `{"account":"acct1","handle":"spencer"}`)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestPagesRequireSignIn(t *testing.T) {
+	identity := fakeIdentity(t)
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	server := &Server{
+		Store:    db,
+		Blobs:    blob.Dir{Root: t.TempDir()},
+		Engrave:  fakeEngraver{},
+		Identity: identity.URL,
+	}
+	ts := httptest.NewServer(server.Handler())
+	t.Cleanup(ts.Close)
+	server.BaseURL = ts.URL
+
+	// Signed out, every page is a redirect to identity's authorize.
+	resp, err := noRedirect.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	location := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(location, identity.URL+"/authorize?") {
+		t.Fatalf("signed-out home answered %d -> %q", resp.StatusCode, location)
+	}
+	if !strings.Contains(location, url.QueryEscape(ts.URL+"/auth/callback")) {
+		t.Fatalf("authorize redirect lacks the callback: %q", location)
+	}
+	var state string
+	for _, c := range resp.Cookies() {
+		if c.Name == stateCookie {
+			state = c.Value
+		}
+	}
+	if state == "" {
+		t.Fatal("no state cookie was set")
+	}
+
+	// A forged state is refused.
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/auth/callback?code=good-code&state=forged", nil)
+	req.AddCookie(&http.Cookie{Name: stateCookie, Value: state})
+	forged, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged.Body.Close()
+	if forged.StatusCode != http.StatusBadRequest {
+		t.Fatalf("forged state answered %d", forged.StatusCode)
+	}
+
+	// The real callback trades the code for a session cookie.
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/auth/callback?code=good-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: stateCookie, Value: state})
+	back, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back.Body.Close()
+	var session *http.Cookie
+	for _, c := range back.Cookies() {
+		if c.Name == sessionCookie && c.Value != "" {
+			session = c
+		}
+	}
+	if back.StatusCode != http.StatusSeeOther || session == nil {
+		t.Fatalf("callback answered %d with no session", back.StatusCode)
+	}
+
+	// Signed in, the page renders and knows who is looking.
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+	req.AddCookie(session)
+	home, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(home.Body)
+	home.Body.Close()
+	if home.StatusCode != http.StatusOK || !strings.Contains(string(page), "spencer") {
+		t.Fatalf("signed-in home answered %d:\n%s", home.StatusCode, page)
+	}
+
+	// Work is stamped with the account.
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/projects",
+		strings.NewReader(url.Values{"name": {"sorter"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(session)
+	made, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	made.Body.Close()
+	if made.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create project answered %d", made.StatusCode)
+	}
+	projects, err := server.Store.ChildProjects(context.Background(), "")
+	if err != nil || len(projects) != 1 || projects[0].Owner != "acct1" {
+		t.Fatalf("project not stamped with the account: %+v %v", projects, err)
+	}
+
+	// The machine API still wants its own bearer, not a cookie.
+	jobs, err := http.Post(ts.URL+"/api/jobs", "application/json",
+		strings.NewReader(`{"printer":"p","external_id":"1","filename":"x.stl","status":"printing","started_at":"2026-01-02T03:04:05Z"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs.Body.Close()
+	if jobs.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("tokenless jobs api answered %d", jobs.StatusCode)
+	}
 }

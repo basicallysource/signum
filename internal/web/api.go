@@ -44,26 +44,30 @@ func (s *Server) recordJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// verifyBearer asks the identity service who a token is. Answers are cached
-// for a minute: a printing bed reports many events, and revocation within a
-// minute is still revocation.
-func (s *Server) verifyBearer(r *http.Request) (string, error) {
+// verifyBearer resolves an Authorization header the way verifyToken resolves
+// any token.
+func (s *Server) verifyBearer(r *http.Request) (Viewer, error) {
 	bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || strings.TrimSpace(bearer) == "" {
-		return "", fmt.Errorf("web: no bearer token")
+		return Viewer{}, fmt.Errorf("web: no bearer token")
 	}
-	bearer = strings.TrimSpace(bearer)
+	return s.verifyToken(r.Context(), strings.TrimSpace(bearer))
+}
 
+// verifyToken asks the identity service who a token is. Answers are cached
+// for a minute: a printing bed reports many events and a browser loads many
+// pages, and revocation within a minute is still revocation.
+func (s *Server) verifyToken(ctx context.Context, bearer string) (Viewer, error) {
 	s.verified.mu.Lock()
 	cached, ok := s.verified.entries[bearer]
 	s.verified.mu.Unlock()
 	if ok && time.Now().Before(cached.until) {
-		return cached.account, nil
+		return cached.viewer, nil
 	}
 
-	account, err := whoami(r.Context(), s.Identity, bearer)
+	viewer, err := whoami(ctx, s.Identity, bearer)
 	if err != nil {
-		return "", err
+		return Viewer{}, err
 	}
 
 	s.verified.mu.Lock()
@@ -73,14 +77,14 @@ func (s *Server) verifyBearer(r *http.Request) (string, error) {
 	if len(s.verified.entries) > 1024 {
 		clear(s.verified.entries)
 	}
-	s.verified.entries[bearer] = verdict{account: account, until: time.Now().Add(time.Minute)}
+	s.verified.entries[bearer] = verdict{viewer: viewer, until: time.Now().Add(time.Minute)}
 	s.verified.mu.Unlock()
-	return account, nil
+	return viewer, nil
 }
 
 type verdict struct {
-	account string
-	until   time.Time
+	viewer Viewer
+	until  time.Time
 }
 
 // verifiedTokens is the cache; it lives on the Server.
@@ -90,29 +94,30 @@ type verifiedTokens struct {
 }
 
 // whoami is the identity service integration, in its entirety.
-func whoami(ctx context.Context, base, bearer string) (string, error) {
+func whoami(ctx context.Context, base, bearer string) (Viewer, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimSuffix(base, "/")+"/v1/whoami", nil)
 	if err != nil {
-		return "", err
+		return Viewer{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+bearer)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("web: reach the identity service: %w", err)
+		return Viewer{}, fmt.Errorf("web: reach the identity service: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("web: the identity service answered %d", resp.StatusCode)
+		return Viewer{}, fmt.Errorf("web: the identity service answered %d", resp.StatusCode)
 	}
 
 	var body struct {
 		Account string `json:"account"`
+		Handle  string `json:"handle"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil || body.Account == "" {
-		return "", fmt.Errorf("web: unreadable identity answer")
+		return Viewer{}, fmt.Errorf("web: unreadable identity answer")
 	}
-	return body.Account, nil
+	return Viewer{Account: body.Account, Handle: body.Handle}, nil
 }

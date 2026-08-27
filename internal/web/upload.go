@@ -20,15 +20,16 @@ const uploadLimit = 512 << 20
 func (s *Server) uploadPage(w http.ResponseWriter, r *http.Request) {
 	project, err := s.Store.ProjectByID(r.Context(), r.PathValue("project"))
 	if errors.Is(err, store.ErrNotFound) {
-		s.fail(w, http.StatusNotFound, "no such project", nil)
+		s.fail(w, r, http.StatusNotFound, "no such project", nil)
 		return
 	}
 	if err != nil {
-		s.fail(w, http.StatusInternalServerError, "could not read the project", err)
+		s.fail(w, r, http.StatusInternalServerError, "could not read the project", err)
 		return
 	}
-	suggestions, _ := s.Store.FieldNamesUsedBy(r.Context(), "")
-	s.render(w, "upload.html", map[string]any{
+	viewer, _ := viewerFrom(r.Context())
+	suggestions, _ := s.Store.FieldNamesUsedBy(r.Context(), viewer.Account)
+	s.render(w, r, "upload.html", map[string]any{
 		"Project":     project,
 		"Suggestions": suggestions,
 	})
@@ -46,12 +47,12 @@ type incoming struct {
 func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	project, err := s.Store.ProjectByID(r.Context(), r.PathValue("project"))
 	if err != nil {
-		s.fail(w, http.StatusNotFound, "no such project", nil)
+		s.fail(w, r, http.StatusNotFound, "no such project", nil)
 		return
 	}
 
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		s.fail(w, http.StatusBadRequest, "could not read the upload", err)
+		s.fail(w, r, http.StatusBadRequest, "could not read the upload", err)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, uploadLimit)
@@ -61,25 +62,25 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		for _, header := range r.MultipartForm.File["files"] {
 			file, err := header.Open()
 			if err != nil {
-				s.fail(w, http.StatusBadRequest, "could not read an uploaded file", err)
+				s.fail(w, r, http.StatusBadRequest, "could not read an uploaded file", err)
 				return
 			}
 			content, err := io.ReadAll(io.LimitReader(file, uploadLimit))
 			file.Close()
 			if err != nil {
-				s.fail(w, http.StatusBadRequest, "could not read an uploaded file", err)
+				s.fail(w, r, http.StatusBadRequest, "could not read an uploaded file", err)
 				return
 			}
 			unpacked, err := unpack(header.Filename, content)
 			if err != nil {
-				s.fail(w, http.StatusBadRequest, "could not unpack "+header.Filename, err)
+				s.fail(w, r, http.StatusBadRequest, "could not unpack "+header.Filename, err)
 				return
 			}
 			stls = append(stls, unpacked...)
 		}
 	}
 	if len(stls) == 0 {
-		s.fail(w, http.StatusBadRequest, "the upload held no STL files", nil)
+		s.fail(w, r, http.StatusBadRequest, "the upload held no STL files", nil)
 		return
 	}
 
@@ -94,7 +95,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	for _, stl := range stls {
 		uid, err := s.createPart(r, project, stl, fields, lineChoices)
 		if err != nil {
-			s.fail(w, http.StatusInternalServerError, "could not save "+stl.filename, err)
+			s.fail(w, r, http.StatusInternalServerError, "could not save "+stl.filename, err)
 			return
 		}
 		if firstUID == "" {
@@ -139,9 +140,10 @@ func (s *Server) createPart(r *http.Request, project store.Project, stl incoming
 		return "", err
 	}
 
+	viewer, _ := viewerFrom(r.Context())
 	name := strings.TrimSuffix(stl.filename, path.Ext(stl.filename))
 	part, err := s.Store.CreatePart(r.Context(),
-		store.Part{ProjectID: project.ID, Name: name},
+		store.Part{ProjectID: project.ID, Name: name, CreatedBy: viewer.Account},
 		[]store.PartFile{{Kind: store.FileSource, Filename: stl.filename, SHA256: sum, Size: size}},
 		fields)
 	if err != nil {
@@ -206,35 +208,35 @@ func (s *Server) engraveOnto(r *http.Request, uid string, stl incoming,
 func (s *Server) reEngrave(w http.ResponseWriter, r *http.Request) {
 	part, err := s.Store.PartByUID(r.Context(), r.PathValue("uid"))
 	if err != nil {
-		s.fail(w, http.StatusNotFound, "nothing has that uid", nil)
+		s.fail(w, r, http.StatusNotFound, "nothing has that uid", nil)
 		return
 	}
 
 	var faces []FaceOption
 	if json.Unmarshal([]byte(part.Placements), &faces) != nil || len(faces) == 0 {
-		s.fail(w, http.StatusBadRequest, "this part has no engraveable faces", nil)
+		s.fail(w, r, http.StatusBadRequest, "this part has no engraveable faces", nil)
 		return
 	}
 	face := 0
 	if _, err := parseInt(r.FormValue("face"), &face); err != nil || face < 0 || face >= len(faces) {
-		s.fail(w, http.StatusBadRequest, "no such face", err)
+		s.fail(w, r, http.StatusBadRequest, "no such face", err)
 		return
 	}
 
 	var info engraveInfo
 	if part.Engrave == "" || json.Unmarshal([]byte(part.Engrave), &info) != nil || len(info.Lines) == 0 {
-		s.fail(w, http.StatusBadRequest, "this part was saved without engraving", nil)
+		s.fail(w, r, http.StatusBadRequest, "this part was saved without engraving", nil)
 		return
 	}
 
 	source, err := s.sourceFile(r, part.UID)
 	if err != nil {
-		s.fail(w, http.StatusInternalServerError, "could not read the source STL", err)
+		s.fail(w, r, http.StatusInternalServerError, "could not read the source STL", err)
 		return
 	}
 
 	if err := s.engraveOnto(r, part.UID, source, info.Lines, faces, face); err != nil {
-		s.fail(w, http.StatusInternalServerError, "could not engrave that face", err)
+		s.fail(w, r, http.StatusInternalServerError, "could not engrave that face", err)
 		return
 	}
 	http.Redirect(w, r, "/u/"+part.UID, http.StatusSeeOther)

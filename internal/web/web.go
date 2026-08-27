@@ -39,9 +39,13 @@ type Server struct {
 	Blobs   blob.Store
 	Engrave Engraver
 	// Identity is the identity service base URL; empty means this instance
-	// runs open (the desktop app, or a server behind its own front door).
+	// runs open with no accounts at all (the desktop app, or a server
+	// behind its own front door). Set, every page requires sign-in.
 	Identity string
-	Logger   *slog.Logger
+	// BaseURL is where this instance lives publicly, for identity's
+	// redirect back. Required when Identity is set.
+	BaseURL string
+	Logger  *slog.Logger
 
 	verified verifiedTokens
 }
@@ -71,10 +75,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /printers", s.printersPage)
 
 	mux.HandleFunc("POST /api/jobs", s.recordJob)
+	mux.HandleFunc("GET /auth/callback", s.authCallback)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
 
+	if s.Identity != "" {
+		return s.requireSession(mux)
+	}
 	return mux
 }
 
@@ -86,17 +94,25 @@ func (s *Server) logger() *slog.Logger {
 }
 
 // render writes a page, or a plain error when the template itself fails.
-func (s *Server) render(w http.ResponseWriter, name string, data any) {
+// Every page learns who is looking at it, for the header.
+func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	if page, ok := data.(map[string]any); ok {
+		if _, exists := page["Viewer"]; !exists {
+			if viewer, ok := viewerFrom(r.Context()); ok {
+				page["Viewer"] = viewer
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
 		s.logger().Error("render", "template", name, "error", err)
 	}
 }
 
-func (s *Server) fail(w http.ResponseWriter, status int, message string, err error) {
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, status int, message string, err error) {
 	if err != nil {
 		s.logger().Error(message, "error", err)
 	}
 	w.WriteHeader(status)
-	s.render(w, "error.html", map[string]any{"Message": message})
+	s.render(w, r, "error.html", map[string]any{"Message": message})
 }

@@ -7,6 +7,7 @@
 
 {{if .Model}}
 <div id="viewer"></div>
+<script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js"}}</script>
 <script type="application/json" id="viewer-data">{{.Model}}</script>
 <script type="module" src="/static/viewer.js"></script>
 {{end}}

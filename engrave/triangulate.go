@@ -115,6 +115,21 @@ func bridgeHole(ring, hole []int, obstacles [][2]Vec2, at func(int) Vec2) ([]int
 		if m == p {
 			continue // a pinch, not a bridge
 		}
+		// The segment test below cannot tell coincident vertices apart:
+		// once earlier bridges have made the ring visit a position more
+		// than once, a bridge to that position is sound only through the
+		// occurrence whose local interior wedge contains it -- spliced
+		// into any other copy it crosses that copy's edges right at the
+		// shared point, inside the whisker visible() must exempt, and the
+		// ring comes out self-intersecting. Requiring the bridge to head
+		// locally into the interior at both endpoints picks the right
+		// copy and costs nothing in the ordinary single-copy case.
+		if !locallyInside(at(ring[(c.r+len(ring)-1)%len(ring)]), p, at(ring[(c.r+1)%len(ring)]), m) {
+			continue
+		}
+		if !locallyInside(at(hole[(c.h+len(hole)-1)%len(hole)]), m, at(hole[(c.h+1)%len(hole)]), p) {
+			continue
+		}
 		if !visible(m, p, obstacles) {
 			continue
 		}
@@ -128,6 +143,25 @@ func bridgeHole(ring, hole []int, obstacles [][2]Vec2, at func(int) Vec2) ([]int
 		return out, [2]Vec2{m, p}, nil
 	}
 	return nil, [2]Vec2{}, fmt.Errorf("engrave: no visible bridge for hole")
+}
+
+// locallyInside reports whether a segment leaving v toward q heads strictly
+// into the region interior at v, where the boundary runs prev -> v -> next
+// with the interior on the left (true along a counter-clockwise outer ring
+// and along a clockwise hole alike). At a convex corner the interior wedge
+// is the directions left of both incident edges; at a reflex corner, left
+// of either. Directions exactly along an edge are boundary, not interior,
+// and report false.
+func locallyInside(prev, v, next, q Vec2) bool {
+	din := v.sub(prev)
+	dout := next.sub(v)
+	d := q.sub(v)
+	li := din.X*d.Y - din.Y*d.X
+	lo := dout.X*d.Y - dout.Y*d.X
+	if din.X*dout.Y-din.Y*dout.X >= 0 { // convex or straight corner
+		return li > 0 && lo > 0
+	}
+	return li > 0 || lo > 0
 }
 
 // visible reports whether the open segment between m and p touches no
@@ -186,6 +220,19 @@ func earClip(ring []int, at func(int) Vec2) ([][3]int, error) {
 	isEar := func(i int) bool {
 		a, b, c := at(ring[prev[i]]), at(ring[i]), at(ring[next[i]])
 		if cross2(a, b, c) <= epsArea {
+			return false
+		}
+		// The diagonal a-c must head into the interior at both endpoints.
+		// The blocker scan below exempts vertices coincident with a
+		// corner (bridge twins), which is sound only while the diagonal
+		// stays on this corner's own sheet of the ring: a diagonal
+		// leaving through a twin's wedge would cross the twin's edges at
+		// the corner itself, where no blocking vertex ever lands inside
+		// the triangle to refuse the ear.
+		if !locallyInside(at(ring[prev[prev[i]]]), a, b, c) {
+			return false
+		}
+		if !locallyInside(b, c, at(ring[next[next[i]]]), a) {
 			return false
 		}
 		for j := next[next[i]]; j != prev[i]; j = next[j] {

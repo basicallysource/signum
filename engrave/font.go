@@ -38,7 +38,7 @@ const flattenTol = 0.015
 // FetchFont downloads the pinned font into cacheDir if it is not already
 // there, verifies it against FontSHA256 either way, and returns its path. An
 // empty cacheDir means the user cache directory, under
-// basically-tracker/fonts. A cached file that fails the hash is refetched,
+// signum/fonts. A cached file that fails the hash is refetched,
 // so a torn download heals itself on the next call.
 func FetchFont(cacheDir string) (string, error) {
 	if cacheDir == "" {
@@ -46,7 +46,7 @@ func FetchFont(cacheDir string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("engrave: no cache dir: %w", err)
 		}
-		cacheDir = filepath.Join(base, "basically-tracker", "fonts")
+		cacheDir = filepath.Join(base, "signum", "fonts")
 	}
 	dest := filepath.Join(cacheDir, filepath.Base(FontURL))
 	if data, err := os.ReadFile(dest); err == nil && sha(data) == FontSHA256 {
@@ -60,7 +60,7 @@ func FetchFont(cacheDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "printing-prototype-tracker/1 (+https://github.com/basicallysource/printing-prototype-tracker)")
+	req.Header.Set("User-Agent", "signum/1 (+https://github.com/basicallysource/signum)")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

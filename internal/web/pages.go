@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/store"
+	"github.com/basicallysource/signum/internal/store"
 )
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {

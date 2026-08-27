@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// HTTPSink reports jobs to a tracker server. The token is an identity
+// HTTPSink reports jobs to a signum server. The token is an identity
 // service bearer token; the server decides what it may do.
 type HTTPSink struct {
 	// URL is the server's base, no trailing slash.

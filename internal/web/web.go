@@ -11,8 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/blob"
-	"github.com/basicallysource/printing-prototype-tracker/internal/store"
+	"github.com/basicallysource/signum/internal/blob"
+	"github.com/basicallysource/signum/internal/store"
 )
 
 // FaceOption is one candidate face the engraver offers, in rank order.

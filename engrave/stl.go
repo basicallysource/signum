@@ -159,7 +159,7 @@ func parseASCII(data []byte) (Mesh, error) {
 // bytes.
 func (m Mesh) WriteBinary(w io.Writer) error {
 	buf := make([]byte, 84, 84+len(m.Triangles)*50)
-	copy(buf, "printing-prototype-tracker engrave")
+	copy(buf, "signum engrave")
 	binary.LittleEndian.PutUint32(buf[80:], uint32(len(m.Triangles)))
 	var scratch [50]byte
 	for _, t := range m.Triangles {

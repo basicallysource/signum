@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/store"
+	"github.com/basicallysource/signum/internal/store"
 )
 
 // uploadLimit bounds one upload request. STLs are big; this is still far

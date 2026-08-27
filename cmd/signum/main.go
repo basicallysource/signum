@@ -1,9 +1,9 @@
 // tracker is the whole product as one binary:
 //
-//	tracker serve    the hosted server, used through the browser
-//	tracker desktop  the same thing on your own machine: local data, opens
+//	signum serve    the hosted server, used through the browser
+//	signum desktop  the same thing on your own machine: local data, opens
 //	                 the browser, works fully signed out
-//	tracker watch    a headless printer watcher for a machine near the
+//	signum watch    a headless printer watcher for a machine near the
 //	                 printers, reporting to a server
 //
 // The desktop and the server are one implementation bound to different
@@ -27,11 +27,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/blob"
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch"
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch/driver"
-	"github.com/basicallysource/printing-prototype-tracker/internal/store"
-	"github.com/basicallysource/printing-prototype-tracker/internal/web"
+	"github.com/basicallysource/signum/internal/blob"
+	"github.com/basicallysource/signum/internal/printwatch"
+	"github.com/basicallysource/signum/internal/printwatch/driver"
+	"github.com/basicallysource/signum/internal/store"
+	"github.com/basicallysource/signum/internal/web"
 )
 
 var version = "dev"
@@ -66,9 +66,9 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  tracker serve    [--addr :8860] [--data DIR] [--identity URL]
-  tracker desktop  [--addr 127.0.0.1:8860] [--data DIR] [--mock name=jobs.json]...
-  tracker watch    --server URL [--token T] [--interval 10s] --mock name=jobs.json...`)
+  signum serve    [--addr :8860] [--data DIR] [--identity URL]
+  signum desktop  [--addr 127.0.0.1:8860] [--data DIR] [--mock name=jobs.json]...
+  signum watch    --server URL [--token T] [--interval 10s] --mock name=jobs.json...`)
 }
 
 // serve runs the web app; desktop mode narrows the defaults to this machine
@@ -79,10 +79,10 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	if desktop {
 		defaultAddr = "127.0.0.1:8860"
 	}
-	addr := flags.String("addr", envOr("TRACKER_ADDR", defaultAddr), "listen address")
-	data := flags.String("data", envOr("TRACKER_DATA", ""), "data directory (database and blobs)")
-	identity := flags.String("identity", envOr("TRACKER_IDENTITY", ""), "identity service base URL; empty runs open")
-	base := flags.String("base", envOr("TRACKER_BASE", ""), "this instance's public base URL, for the sign-in redirect")
+	addr := flags.String("addr", envOr("SIGNUM_ADDR", defaultAddr), "listen address")
+	data := flags.String("data", envOr("SIGNUM_DATA", ""), "data directory (database and blobs)")
+	identity := flags.String("identity", envOr("SIGNUM_IDENTITY", ""), "identity service base URL; empty runs open")
+	base := flags.String("base", envOr("SIGNUM_BASE", ""), "this instance's public base URL, for the sign-in redirect")
 	mocks := repeated{}
 	flags.Var(&mocks, "mock", "simulated printer, name=jobs.json (repeatable)")
 	flags.Parse(args)
@@ -94,7 +94,7 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 			if err != nil {
 				return fmt.Errorf("no data dir and no user config dir: %w", err)
 			}
-			dir = filepath.Join(config, "basically-tracker")
+			dir = filepath.Join(config, "signum")
 		} else {
 			dir = "data"
 		}
@@ -103,14 +103,14 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 		return err
 	}
 
-	db, err := store.Open(filepath.Join(dir, "tracker.db"))
+	db, err := store.Open(filepath.Join(dir, "signum.db"))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
 	if *identity != "" && *base == "" {
-		return errors.New("an identity service needs --base (or TRACKER_BASE) for the sign-in redirect")
+		return errors.New("an identity service needs --base (or SIGNUM_BASE) for the sign-in redirect")
 	}
 
 	server := &web.Server{
@@ -161,15 +161,15 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 // watch polls printers and reports to a server.
 func watch(logger *slog.Logger, args []string) error {
 	flags := flag.NewFlagSet("watch", flag.ExitOnError)
-	server := flags.String("server", envOr("TRACKER_SERVER", ""), "tracker server base URL")
-	token := flags.String("token", envOr("TRACKER_TOKEN", ""), "identity bearer token")
+	server := flags.String("server", envOr("SIGNUM_SERVER", ""), "signum server base URL")
+	token := flags.String("token", envOr("SIGNUM_TOKEN", ""), "identity bearer token")
 	interval := flags.Duration("interval", 10*time.Second, "poll interval")
 	mocks := repeated{}
 	flags.Var(&mocks, "mock", "simulated printer, name=jobs.json (repeatable)")
 	flags.Parse(args)
 
 	if *server == "" {
-		return errors.New("watch needs --server (or TRACKER_SERVER)")
+		return errors.New("watch needs --server (or SIGNUM_SERVER)")
 	}
 	drivers := mocks.drivers()
 	if len(drivers) == 0 {

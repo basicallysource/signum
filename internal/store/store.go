@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch"
+	"github.com/basicallysource/signum/internal/printwatch"
 	_ "modernc.org/sqlite"
 )
 

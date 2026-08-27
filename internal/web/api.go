@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch"
+	"github.com/basicallysource/signum/internal/printwatch"
 )
 
 // recordJob is what a watch agent posts to. With an identity service

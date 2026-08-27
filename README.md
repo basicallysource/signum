@@ -1,4 +1,4 @@
-# printing-prototype-tracker
+# signum
 
 Track the physical prototypes you print. Upload an STL — or a folder or zip
 of them — describe it (version, variant, CAD links, your own fields), and it
@@ -9,10 +9,10 @@ the printer, filament, and settings that were actually used.
 
 One Go binary:
 
-- `tracker serve` — the hosted server, used through the browser.
-- `tracker desktop` — the same thing on your own machine: local database,
+- `signum serve` — the hosted server, used through the browser.
+- `signum desktop` — the same thing on your own machine: local database,
   works fully offline and signed out, can mirror projects to folders on disk.
-- `tracker watch` — a headless agent for a Raspberry Pi on the same network
+- `signum watch` — a headless agent for a Raspberry Pi on the same network
   as the printers, reporting jobs to a server.
 
 Sign-in, when you want it, is "sign in with GitHub or Discord" through the

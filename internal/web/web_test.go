@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/blob"
-	"github.com/basicallysource/printing-prototype-tracker/internal/store"
+	"github.com/basicallysource/signum/internal/blob"
+	"github.com/basicallysource/signum/internal/store"
 )
 
 // fakeEngraver stamps by appending, which keeps these tests about the web

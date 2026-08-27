@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch"
+	"github.com/basicallysource/signum/internal/printwatch"
 )
 
 func open(t *testing.T) *DB {

@@ -21,11 +21,11 @@ jobs:
           mkdir -p dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             os="${target%/*}"; arch="${target#*/}"
-            out="dist/tracker-${os}-${arch}"
+            out="dist/signum-${os}-${arch}"
             [ "$os" = windows ] && out="$out.exe"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
-              -o "$out" ./cmd/tracker
+              -o "$out" ./cmd/signum
           done
       - uses: softprops/action-gh-release@v2
         with:

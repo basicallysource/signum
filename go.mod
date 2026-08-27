@@ -1,4 +1,4 @@
-module github.com/basicallysource/printing-prototype-tracker
+module github.com/basicallysource/signum
 
 go 1.26.0
 

@@ -29,7 +29,7 @@ throwing it out:
   genuinely interactive (upload, the face picker). No frontend build step at
   all. Any JS library we adopt (e.g. htmx, a 3D viewer) is vendored as one
   pinned file, never a package manager.
-- **The desktop app is the same binary.** `tracker desktop` runs the same
+- **The desktop app is the same binary.** `signum desktop` runs the same
   server against a local database and opens the browser. If a native window
   ever matters, a webview shell wraps this same HTTP surface — that is a
   packaging decision for later, deliberately not a second frontend. It must
@@ -65,7 +65,7 @@ throwing it out:
   engraved files land where you work.
 - **Printer watching is one package with two thin faces**
   (`internal/printwatch`). The desktop app and the headless Pi agent
-  (`tracker watch`) are the same watcher: drivers poll printers on the local
+  (`signum watch`) are the same watcher: drivers poll printers on the local
   network, emit job events (file, timestamps, outcome, parameters), and a
   sink either writes the local database (desktop, signed out) or posts to a
   server with a token (the Pi, or a signed-in desktop). This is not
@@ -80,7 +80,7 @@ throwing it out:
 
 ## Layout
 
-    cmd/tracker           the binary: serve / desktop / watch subcommands
+    cmd/signum            the binary: serve / desktop / watch subcommands
     engrave/              STL in, ranked faces, text pocket out (pure Go)
     internal/store        SQLite: projects, parts, files, fields, printers, jobs
     internal/web          handlers + templates + the stylesheet
@@ -97,4 +97,4 @@ throwing it out:
 - Server-side blob storage on the asset service — a second implementation of
   `internal/blob`, chosen by configuration.
 - Desktop webview shell and OS packaging (signed .app, .msi) — wraps
-  `tracker desktop`, changes nothing above it.
+  `signum desktop`, changes nothing above it.

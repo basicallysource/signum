@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/basicallysource/printing-prototype-tracker/internal/printwatch"
+	"github.com/basicallysource/signum/internal/printwatch"
 )
 
 // Mock reads its jobs from a JSON file on every poll: an array of

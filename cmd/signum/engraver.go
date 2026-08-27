@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/basicallysource/printing-prototype-tracker/engrave"
-	"github.com/basicallysource/printing-prototype-tracker/internal/web"
+	"github.com/basicallysource/signum/engrave"
+	"github.com/basicallysource/signum/internal/web"
 )
 
 // engraver adapts the engrave package to the web layer's seam. The font is

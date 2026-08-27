@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,5 +163,37 @@ func TestRecordJobMatchesParts(t *testing.T) {
 	}
 	if jobs[1].Params["filament"] != "PETG" {
 		t.Fatalf("params lost: %+v", jobs[1])
+	}
+}
+
+func TestUIDMatchesHoweverTheNameMutated(t *testing.T) {
+	db := open(t)
+	ctx := context.Background()
+
+	project, _ := db.CreateProject(ctx, "", "me", "sorter")
+	part, err := db.CreatePart(ctx,
+		Part{ProjectID: project.ID, Name: "bracket", CreatedBy: "me"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A printer reports the job name with no extension; a slicer leaves
+	// .gcode.3mf; case wanders. All of them are the same part.
+	for i, filename := range []string{
+		"bracket-" + part.UID,
+		"bracket-" + part.UID + ".gcode.3mf",
+		"BRACKET-" + strings.ToUpper(part.UID) + ".STL",
+	} {
+		err := db.RecordJob(ctx, printwatch.Job{
+			Printer: "p", ExternalID: strconv.Itoa(i), Filename: filename,
+			Status: printwatch.StatusPrinting, StartedAt: time.Now().UTC().Add(time.Duration(i) * time.Minute),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	jobs, err := db.JobsForPart(ctx, part.UID)
+	if err != nil || len(jobs) != 3 {
+		t.Fatalf("expected all 3 name shapes to match, got %d (%v)", len(jobs), err)
 	}
 }

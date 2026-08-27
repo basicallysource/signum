@@ -463,8 +463,10 @@ func (db *DB) FieldNamesUsedBy(ctx context.Context, owner string) ([]string, err
 
 // -- print jobs -------------------------------------------------------------
 
-// uidInFilename spots an engraved filename: "bracket-x7k2p9.stl".
-var uidInFilename = regexp.MustCompile(`-([a-z0-9]{6})\.[sS][tT][lL]$`)
+// uidInFilename spots an engraved name wherever the file went next:
+// "bracket-x7k2p9.stl" as uploaded, "bracket-x7k2p9" as a printer reports
+// the job, "bracket-x7k2p9.gcode.3mf" as a slicer left it.
+var uidInFilename = regexp.MustCompile(`(?i)-([a-z0-9]{6})(?:\.[0-9a-z]+)*$`)
 
 // RecordJob upserts a watched job and ties it to a part when it can: an
 // exact file-hash match first, the uid in an engraved filename second.
@@ -480,8 +482,9 @@ func (db *DB) RecordJob(ctx context.Context, job printwatch.Job) error {
 	}
 	if partUID == "" {
 		if match := uidInFilename.FindStringSubmatch(job.Filename); match != nil {
-			if _, err := db.PartByUID(ctx, match[1]); err == nil {
-				partUID = match[1]
+			uid := strings.ToLower(match[1])
+			if _, err := db.PartByUID(ctx, uid); err == nil {
+				partUID = uid
 			}
 		}
 	}

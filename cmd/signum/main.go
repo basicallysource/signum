@@ -66,9 +66,9 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  signum serve    [--addr :8860] [--data DIR] [--identity URL]
-  signum desktop  [--addr 127.0.0.1:8860] [--data DIR] [--mock name=jobs.json]...
-  signum watch    --server URL [--token T] [--interval 10s] --mock name=jobs.json...`)
+  signum serve    [--addr :8860] [--data DIR] [--identity URL] [--base URL]
+  signum desktop  [--addr 127.0.0.1:8860] [--data DIR] [--printers printers.json]
+  signum watch    --server URL [--token T] [--interval 10s] --printers printers.json`)
 }
 
 // serve runs the web app; desktop mode narrows the defaults to this machine
@@ -83,6 +83,7 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	data := flags.String("data", envOr("SIGNUM_DATA", ""), "data directory (database and blobs)")
 	identity := flags.String("identity", envOr("SIGNUM_IDENTITY", ""), "identity service base URL; empty runs open")
 	base := flags.String("base", envOr("SIGNUM_BASE", ""), "this instance's public base URL, for the sign-in redirect")
+	printers := flags.String("printers", envOr("SIGNUM_PRINTERS", ""), "JSON file of printers to watch locally")
 	mocks := repeated{}
 	flags.Var(&mocks, "mock", "simulated printer, name=jobs.json (repeatable)")
 	flags.Parse(args)
@@ -126,9 +127,14 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	defer stop()
 
 	// The desktop watches printers itself, straight into its own database.
-	if len(mocks) > 0 {
+	drivers, err := loadPrinters(*printers, logger)
+	if err != nil {
+		return err
+	}
+	drivers = append(drivers, mocks.drivers()...)
+	if len(drivers) > 0 {
 		watcher := &printwatch.Watcher{
-			Drivers: mocks.drivers(),
+			Drivers: drivers,
 			Sink:    sinkFunc(db.RecordJob),
 			Logger:  logger,
 		}
@@ -164,6 +170,7 @@ func watch(logger *slog.Logger, args []string) error {
 	server := flags.String("server", envOr("SIGNUM_SERVER", ""), "signum server base URL")
 	token := flags.String("token", envOr("SIGNUM_TOKEN", ""), "identity bearer token")
 	interval := flags.Duration("interval", 10*time.Second, "poll interval")
+	printers := flags.String("printers", envOr("SIGNUM_PRINTERS", ""), "JSON file of printers to watch")
 	mocks := repeated{}
 	flags.Var(&mocks, "mock", "simulated printer, name=jobs.json (repeatable)")
 	flags.Parse(args)
@@ -171,9 +178,13 @@ func watch(logger *slog.Logger, args []string) error {
 	if *server == "" {
 		return errors.New("watch needs --server (or SIGNUM_SERVER)")
 	}
-	drivers := mocks.drivers()
+	drivers, err := loadPrinters(*printers, logger)
+	if err != nil {
+		return err
+	}
+	drivers = append(drivers, mocks.drivers()...)
 	if len(drivers) == 0 {
-		return errors.New("watch needs at least one printer (--mock name=jobs.json until real drivers land)")
+		return errors.New("watch needs at least one printer: --printers printers.json")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -186,11 +197,10 @@ func watch(logger *slog.Logger, args []string) error {
 		Logger:   logger,
 	}
 	logger.Info("watching", "printers", len(drivers), "server", *server)
-	err := watcher.Run(ctx)
-	if errors.Is(err, context.Canceled) {
-		return nil
+	if err := watcher.Run(ctx); !errors.Is(err, context.Canceled) {
+		return err
 	}
-	return err
+	return nil
 }
 
 // repeated collects "--mock name=path" style flags.

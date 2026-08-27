@@ -1,0 +1,50 @@
+{{template "top" .}}
+<p class="muted"><a href="/p/{{.Project.ID}}">{{.Project.Name}}</a> / upload</p>
+<h1>upload STLs</h1>
+<p class="muted">Loose files, several at once, or a zip. Every STL becomes a
+tracked part with its own uid; the description below applies to all of them.</p>
+
+<form method="post" enctype="multipart/form-data" class="stack" style="margin-top:1rem">
+  <input type="file" name="files" multiple accept=".stl,.zip" required>
+
+  <h2>describe</h2>
+  <div class="grid">
+    <label>version <input type="text" name="version" placeholder="v3"></label>
+    <label>variant <input type="text" name="variant" placeholder="left"></label>
+    <label>onshape part studio <input type="text" name="onshape_studio" placeholder="https://…"></label>
+    <label>onshape version <input type="text" name="onshape_version"></label>
+  </div>
+  <label>notes <textarea name="notes" rows="3"></textarea></label>
+
+  <div id="custom-fields" class="stack"></div>
+  <div class="row">
+    <button type="button" onclick="addField()">Add a field</button>
+  </div>
+  <datalist id="field-suggestions">
+    {{range .Suggestions}}<option value="{{.}}">{{end}}
+  </datalist>
+
+  <h2>engrave</h2>
+  <label class="check"><input type="checkbox" name="engrave_uid" checked> the uid</label>
+  <label class="check"><input type="checkbox" name="engrave_filename"> the filename</label>
+  <label>a version line <input type="text" name="engrave_version_text" placeholder="leave empty for none"></label>
+  <p class="muted">The uid goes on the best face found; you can move it to
+  another face from the part page afterwards.</p>
+
+  <div class="row">
+    <button class="primary">Upload and engrave</button>
+  </div>
+</form>
+
+<script>
+function addField() {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML =
+    '<input type="text" name="field_name" placeholder="field" list="field-suggestions">' +
+    '<input type="text" name="field_value" placeholder="value">' +
+    '<button type="button" onclick="this.parentNode.remove()">Remove</button>';
+  document.getElementById('custom-fields').append(row);
+}
+</script>
+{{template "bottom"}}

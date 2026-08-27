@@ -1,0 +1,45 @@
+{{template "top" .}}
+<h1>parts</h1>
+<p class="muted">Upload STLs, engrave a uid, and know every part in the drawer.
+Type the uid off a physical part:</p>
+
+<form method="post" action="/lookup" class="row">
+  <input type="text" name="uid" placeholder="x7k2p9" class="mono" maxlength="6" autofocus>
+  <button class="primary">Look up</button>
+</form>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<h2>projects</h2>
+{{if .Projects}}
+<table>
+  {{range .Projects}}
+  <tr><td><a href="/p/{{.ID}}">{{.Name}}</a></td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td></tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">Nothing yet.</p>
+{{end}}
+
+<form method="post" action="/projects" class="row" style="margin-top:0.75rem">
+  <input type="text" name="name" placeholder="project name">
+  <button>New project</button>
+</form>
+
+<h2>recent prints</h2>
+{{if .Jobs}}
+<table>
+  <tr><th>file</th><th>printer</th><th>status</th><th>started</th></tr>
+  {{range .Jobs}}
+  <tr>
+    <td class="mono">{{if .PartUID}}<a href="/u/{{.PartUID}}">{{.Filename}}</a>{{else}}{{.Filename}}{{end}}</td>
+    <td>{{.Printer}}</td>
+    <td><span class="status-{{.Status}}">{{.Status}}</span></td>
+    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">No printer has reported yet. Run <code>tracker watch</code> near your printers.</p>
+{{end}}
+{{template "bottom"}}

@@ -1,0 +1,67 @@
+{{template "top" .}}
+<p class="muted">
+  <a href="/">projects</a>{{range .Path}} / <a href="/p/{{.ID}}">{{.Name}}</a>{{end}}
+</p>
+<h1>{{.Part.Name}} <span class="mono muted">{{.Part.UID}}</span></h1>
+<p class="muted">added {{.Part.CreatedAt.Format "2006-01-02 15:04"}}</p>
+
+{{if .Fields}}
+<h2>fields</h2>
+<table>
+  {{range .Fields}}
+  <tr><td class="muted" style="width:12rem">{{.Name}}</td><td>{{.Value}}</td></tr>
+  {{end}}
+</table>
+{{end}}
+
+<h2>files</h2>
+<table>
+  <tr><th>file</th><th>kind</th><th class="num">size</th></tr>
+  {{range .Files}}
+  <tr>
+    <td class="mono"><a href="/u/{{.PartUID}}/file/{{.ID}}">{{.Filename}}</a></td>
+    <td class="muted">{{.Kind}}</td>
+    <td class="num muted">{{.Size}}</td>
+  </tr>
+  {{end}}
+</table>
+
+<h2>engraving</h2>
+{{if .Engraved}}
+<p>Cut on the <strong>{{.Engraved.Note}}</strong>:
+  {{range $i, $line := .Engraved.Lines}}{{if $i}} · {{end}}<code>{{$line}}</code>{{end}}</p>
+{{if gt (len .Faces) 1}}
+<form method="post" action="/u/{{.Part.UID}}/engrave" class="row">
+  <select name="face">
+    {{$chosen := .Engraved.Face}}
+    {{range $i, $face := .Faces}}
+    <option value="{{$i}}" {{if eq $i $chosen}}selected{{end}}>{{$face.Note}} ({{printf "%.1f" $face.Cap}}mm text)</option>
+    {{end}}
+  </select>
+  <button>Move it there</button>
+</form>
+{{end}}
+{{else if .Faces}}
+<p class="muted">Not engraved.</p>
+{{else}}
+<p class="muted">No face on this geometry takes the text.</p>
+{{end}}
+
+<h2>prints</h2>
+{{if .Jobs}}
+<table>
+  <tr><th>printer</th><th>status</th><th>started</th><th>ended</th><th>parameters</th></tr>
+  {{range .Jobs}}
+  <tr>
+    <td>{{.Printer}}</td>
+    <td><span class="status-{{.Status}}">{{.Status}}</span></td>
+    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
+    <td class="muted">{{if not .EndedAt.IsZero}}{{.EndedAt.Format "01-02 15:04"}}{{end}}</td>
+    <td class="muted">{{range $k, $v := .Params}}{{$k}}={{$v}} {{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">Never printed, as far as any watcher has seen.</p>
+{{end}}
+{{template "bottom"}}

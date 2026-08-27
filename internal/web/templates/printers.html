@@ -1,0 +1,23 @@
+{{template "top" .}}
+<h1>printers</h1>
+<p class="muted">Everything the watchers have reported, newest first. Printers
+are configured where the watcher runs: <code>tracker watch</code> near the
+machines, or the desktop app.</p>
+
+{{if .Jobs}}
+<table>
+  <tr><th>printer</th><th>file</th><th>status</th><th>started</th><th>ended</th></tr>
+  {{range .Jobs}}
+  <tr>
+    <td>{{.Printer}}</td>
+    <td class="mono">{{if .PartUID}}<a href="/u/{{.PartUID}}">{{.Filename}}</a>{{else}}{{.Filename}}{{end}}</td>
+    <td><span class="status-{{.Status}}">{{.Status}}</span></td>
+    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
+    <td class="muted">{{if not .EndedAt.IsZero}}{{.EndedAt.Format "01-02 15:04"}}{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">Nothing yet.</p>
+{{end}}
+{{template "bottom"}}

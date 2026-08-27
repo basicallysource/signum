@@ -1,0 +1,13 @@
+# Machine-local, private context. Never committed.
+AGENTS.local.md
+*.local.md
+
+.env
+*.env
+
+# Local data and scratch
+*.db
+*.db-wal
+*.db-shm
+/tmp/
+/dist/

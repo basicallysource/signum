@@ -1,0 +1,42 @@
+{{template "top" .}}
+<p class="muted">
+  <a href="/">projects</a>{{range .Path}} / <a href="/p/{{.ID}}">{{.Name}}</a>{{end}}
+</p>
+<h1>{{.Project.Name}}</h1>
+
+<div class="row" style="margin:0.75rem 0">
+  <a href="/p/{{.Project.ID}}/upload"><button class="primary">Upload STLs</button></a>
+</div>
+
+{{if .Children}}
+<h2>folders</h2>
+<table>
+  {{range .Children}}
+  <tr><td><a href="/p/{{.ID}}">{{.Name}}</a></td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td></tr>
+  {{end}}
+</table>
+{{end}}
+
+<form method="post" action="/projects" class="row" style="margin-top:0.75rem">
+  <input type="hidden" name="parent" value="{{.Project.ID}}">
+  <input type="text" name="name" placeholder="folder name">
+  <button>New folder</button>
+</form>
+
+<h2>parts</h2>
+{{if .Parts}}
+<table>
+  <tr><th>uid</th><th>name</th><th>added</th></tr>
+  {{range .Parts}}
+  <tr>
+    <td class="mono"><a href="/u/{{.UID}}">{{.UID}}</a></td>
+    <td>{{.Name}}</td>
+    <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="muted">No parts here yet.</p>
+{{end}}
+{{template "bottom"}}

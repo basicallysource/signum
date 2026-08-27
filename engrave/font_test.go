@@ -118,3 +118,34 @@ func TestOutlinesRejectsMissingGlyph(t *testing.T) {
 		t.Fatal("snowman rendered without error")
 	}
 }
+
+func TestOutlinesStacksLines(t *testing.T) {
+	f := testFont(t)
+
+	one, err := f.Outlines("abc", CapHeight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := f.Outlines("abc\nde", CapHeight)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The block is about as wide as its widest line (bearings differ a hair
+	// between lines) and taller by one pitch.
+	if two.Max.X-two.Min.X > one.Max.X-one.Min.X+0.5 {
+		t.Fatalf("second line widened the block: %v vs %v", two.Max.X-two.Min.X, one.Max.X-one.Min.X)
+	}
+	wantTaller := CapHeight * linePitch
+	oneH := one.Max.Y - one.Min.Y
+	twoH := two.Max.Y - two.Min.Y
+	if twoH < oneH+wantTaller*0.8 {
+		t.Fatalf("two lines are not stacked: height %v vs %v", twoH, oneH)
+	}
+
+	// Determinism holds across lines too.
+	again, _ := f.Outlines("abc\nde", CapHeight)
+	if len(again.Loops) != len(two.Loops) {
+		t.Fatalf("multiline layout is not deterministic")
+	}
+}

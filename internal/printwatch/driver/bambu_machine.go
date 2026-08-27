@@ -134,6 +134,17 @@ func (m *bambuMachine) Apply(payload []byte, now time.Time) {
 		m.known.state = *p.GcodeState
 		m.transition(*p.GcodeState, now)
 	}
+	// Opening a job wipes the previous print's progress; numbers that rode
+	// in on this same payload are the new print's own and survive it.
+	if p.McPercent != nil {
+		m.known.percent = int(*p.McPercent)
+	}
+	if p.LayerNum != nil {
+		m.known.layer = int(*p.LayerNum)
+	}
+	if p.TotalLayerNum != nil {
+		m.known.totalLayers = int(*p.TotalLayerNum)
+	}
 
 	m.refresh(now)
 }
@@ -183,6 +194,11 @@ func (m *bambuMachine) active() bool {
 }
 
 func (m *bambuMachine) open(now time.Time) {
+	// The printer keeps narrating the LAST print's progress until the new
+	// one actually lays gcode: percent 100, full layer count. A fresh job
+	// starts knowing nothing and believes only numbers that arrive after
+	// it opened.
+	m.known.percent, m.known.layer, m.known.totalLayers = 0, 0, 0
 	m.opened++
 	id := m.known.taskID
 	// LAN-mode prints report no usable task id; number the observation.

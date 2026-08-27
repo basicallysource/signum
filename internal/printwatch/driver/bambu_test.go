@@ -116,3 +116,26 @@ func TestBambuMachineIgnoresNoise(t *testing.T) {
 		t.Fatalf("noise made jobs: %+v", jobs)
 	}
 }
+
+func TestBambuMachineForgetsTheLastPrintsProgress(t *testing.T) {
+	m := newBambuMachine("a1")
+
+	// A finished print left its end state in the merged view.
+	m.Apply([]byte(`{"print":{"gcode_state":"RUNNING","subtask_name":"first","task_id":"1","mc_percent":100,"layer_num":255,"total_layer_num":255}}`), at(0))
+	m.Apply([]byte(`{"print":{"gcode_state":"FINISH"}}`), at(1))
+
+	// The next print opens before any fresh progress arrives.
+	m.Apply([]byte(`{"print":{"gcode_state":"RUNNING","subtask_name":"second","task_id":"2"}}`), at(2))
+	jobs := m.Jobs()
+	current := jobs[len(jobs)-1]
+	if current.Params["percent"] != "" || current.Params["layers"] != "" {
+		t.Fatalf("a fresh job inherited the last print's progress: %+v", current.Params)
+	}
+
+	// Real numbers land once it actually prints.
+	m.Apply([]byte(`{"print":{"mc_percent":3,"layer_num":2,"total_layer_num":180}}`), at(3))
+	current = m.Jobs()[len(m.Jobs())-1]
+	if current.Params["percent"] != "3" || current.Params["layers"] != "2/180" {
+		t.Fatalf("fresh progress did not land: %+v", current.Params)
+	}
+}

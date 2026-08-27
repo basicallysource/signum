@@ -173,8 +173,14 @@ func (o *TextOutline) Area() float64 {
 	return a
 }
 
+// linePitch is the baseline-to-baseline distance of stacked lines, in cap
+// heights: room for a descender under the line above plus a visible gap, on
+// FDM plastic where two pockets that nearly touch read as one smudge.
+const linePitch = 1.7
+
 // Outlines lays out text at the given cap height and returns its contours.
-// Every rune must have a glyph in the font; space contributes only advance.
+// A newline stacks the rest onto the next line, left-aligned; every other
+// rune must have a glyph in the font, and space contributes only advance.
 // Layout is plain advances -- the pinned font is a monospace, so there is no
 // kerning to apply.
 func (f *Font) Outlines(text string, capHeight float64) (*TextOutline, error) {
@@ -186,8 +192,13 @@ func (f *Font) Outlines(text string, capHeight float64) (*TextOutline, error) {
 	}
 	scale := capHeight / f.capUnits
 	out := &TextOutline{Min: Vec2{math.Inf(1), math.Inf(1)}, Max: Vec2{math.Inf(-1), math.Inf(-1)}}
-	penX := 0.0
+	penX, penY := 0.0, 0.0
 	for _, r := range text {
+		if r == '\n' {
+			penX = 0
+			penY -= capHeight * linePitch
+			continue
+		}
 		loops, advance, err := f.glyphLoops(r)
 		if err != nil {
 			return nil, err
@@ -196,7 +207,7 @@ func (f *Font) Outlines(text string, capHeight float64) (*TextOutline, error) {
 		for _, raw := range loops {
 			pts := make([]Vec2, 0, len(raw))
 			for _, p := range raw {
-				pts = append(pts, Vec2{penX + p.X*scale, p.Y * scale})
+				pts = append(pts, Vec2{penX + p.X*scale, penY + p.Y*scale})
 			}
 			pts = dedupeLoop(pts)
 			if len(pts) < 3 || math.Abs(loopArea(pts)) < 1e-6 {

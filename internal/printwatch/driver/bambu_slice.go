@@ -43,7 +43,9 @@ const (
 var bambuPlateSuffix = regexp.MustCompile(`_plate_([0-9]+)$`)
 
 // fetchSliceDoc pulls the project for a job named like the printer names
-// them ("thing_plate_5") and distills it.
+// them ("thing_plate_5") and distills it. A modern send is stored as the
+// subtask name verbatim -- plate suffix included -- as a per-plate 3MF; the
+// suffix-stripped whole project is the older layout.
 func fetchSliceDoc(host, accessCode, subtask string) (json.RawMessage, error) {
 	base := subtask
 	plate := 1
@@ -52,18 +54,23 @@ func fetchSliceDoc(host, accessCode, subtask string) (json.RawMessage, error) {
 		plate, _ = strconv.Atoi(match[1])
 	}
 
-	archive, err := fetchProject(host, accessCode, base)
+	archive, err := fetchProject(host, accessCode, []string{
+		"/cache/" + subtask + ".3mf",
+		"/cache/" + base + ".3mf",
+		"/" + subtask + ".3mf",
+		"/model/" + base + ".3mf",
+	})
 	if err != nil {
 		return nil, err
 	}
 	return distill3MF(archive, plate)
 }
 
-// fetchProject retrieves "<base>.3mf" from the printer over implicit-TLS
-// FTPS. The certificate is self-signed and the access code is the trust;
-// the session cache matters because some firmwares insist the data
-// connection resumes the control connection's TLS session.
-func fetchProject(host, accessCode, base string) ([]byte, error) {
+// fetchProject retrieves the first of paths that exists on the printer over
+// implicit-TLS FTPS. The certificate is self-signed and the access code is
+// the trust; the session cache matters because some firmwares insist the
+// data connection resumes the control connection's TLS session.
+func fetchProject(host, accessCode string, paths []string) ([]byte, error) {
 	config := &tls.Config{
 		InsecureSkipVerify: true,
 		ClientSessionCache: tls.NewLRUClientSessionCache(8),
@@ -80,11 +87,7 @@ func fetchProject(host, accessCode, base string) ([]byte, error) {
 	}
 
 	var lastErr error
-	for _, path := range []string{
-		"/cache/" + base + ".3mf",
-		"/" + base + ".3mf",
-		"/model/" + base + ".3mf",
-	} {
+	for _, path := range paths {
 		response, err := client.Retr(path)
 		if err != nil {
 			lastErr = err
@@ -98,7 +101,7 @@ func fetchProject(host, accessCode, base string) ([]byte, error) {
 		}
 		return data, nil
 	}
-	return nil, fmt.Errorf("driver: %s has no %s.3mf: %w", host, base, lastErr)
+	return nil, fmt.Errorf("driver: %s has no project at %s: %w", host, strings.Join(paths, " "), lastErr)
 }
 
 // distill3MF reads the three config entries that matter out of the project

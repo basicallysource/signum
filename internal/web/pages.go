@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/basicallysource/signum/internal/store"
@@ -75,13 +76,27 @@ func (s *Server) projectPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "could not list parts", err)
 		return
 	}
+
+	// A fresh upload announces itself with the uids it made, so the page
+	// can offer the engraved results as one archive right away.
+	var uploaded []string
+	for _, uid := range strings.Split(r.URL.Query().Get("uploaded"), ",") {
+		if validUID.MatchString(uid) {
+			uploaded = append(uploaded, uid)
+		}
+	}
+
 	s.render(w, r, "project.html", map[string]any{
 		"Project":  project,
 		"Path":     path,
 		"Children": children,
 		"Parts":    parts,
+		"Uploaded": uploaded,
+		"Error":    r.URL.Query().Get("error"),
 	})
 }
+
+var validUID = regexp.MustCompile(`^[a-z0-9]{6}$`)
 
 // engraveInfo is what parts.engrave holds, when an engraving happened:
 // Aspects is what the person chose to engrave, Lines is how the engraver
@@ -141,15 +156,24 @@ func (s *Server) partPage(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal([]byte(part.Engrave), engraved)
 	}
 
+	var engravedFile *store.PartFile
+	for i := range partFiles {
+		if partFiles[i].Kind == store.FileEngraved {
+			engravedFile = &partFiles[i]
+		}
+	}
+
 	s.render(w, r, "part.html", map[string]any{
-		"Part":     part,
-		"Path":     path,
-		"Fields":   fields,
-		"Files":    partFiles,
-		"Jobs":     jobs,
-		"Faces":    faces,
-		"Engraved": engraved,
-		"Model":    modelPayload(part.UID, partFiles, faces, engraved),
+		"Part":         part,
+		"Path":         path,
+		"Fields":       fields,
+		"Files":        partFiles,
+		"Jobs":         jobs,
+		"Faces":        faces,
+		"Engraved":     engraved,
+		"Model":        modelPayload(part.UID, partFiles, faces, engraved),
+		"JustUploaded": r.URL.Query().Get("uploaded") != "",
+		"EngravedFile": engravedFile,
 	})
 }
 

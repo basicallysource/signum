@@ -14,8 +14,8 @@ machines, or the desktop app.</p>
     <td class="mono"><a href="/j/{{.ID}}">{{.Filename}}</a></td>
     <td><span class="status-{{.Status}}">{{.Status}}</span>{{with index .Params "percent"}} <span class="muted">{{.}}%</span>{{end}}</td>
     <td class="muted">{{with index .Params "filament"}}{{.}} · {{end}}{{with index .Params "nozzle"}}{{.}} · {{end}}{{with index .Params "bed"}}{{.}} bed · {{end}}{{with index .Params "layers"}}{{.}} layers{{end}}</td>
-    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
-    <td class="muted">{{if not .EndedAt.IsZero}}{{.EndedAt.Format "01-02 15:04"}}{{end}}</td>
+    <td class="muted">{{stamp .StartedAt}}</td>
+    <td class="muted">{{stamp .EndedAt}}</td>
   </tr>
   {{end}}
 </table>

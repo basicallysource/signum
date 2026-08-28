@@ -4,8 +4,8 @@
 <p class="muted">
   {{.Job.Printer}} · <span class="status-{{.Job.Status}}">{{.Job.Status}}</span>
   {{with index .Job.Params "percent"}} {{.}}%{{end}}
-  · started {{.Job.StartedAt.Format "2006-01-02 15:04"}}
-  {{if not .Job.EndedAt.IsZero}} · ended {{.Job.EndedAt.Format "15:04"}}{{end}}
+  · started {{stamp .Job.StartedAt}}
+  {{if not .Job.EndedAt.IsZero}} · ended {{stamp .Job.EndedAt}}{{end}}
   {{if .Plate}} · plate {{.Plate}}{{end}}
 </p>
 

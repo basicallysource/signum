@@ -3,7 +3,14 @@
   <a href="/">projects</a>{{range .Path}} / <a href="/p/{{.ID}}">{{.Name}}</a>{{end}}
 </p>
 <h1>{{.Part.Name}} <span class="mono muted">{{.Part.UID}}</span></h1>
-<p class="muted">added {{.Part.CreatedAt.Format "2006-01-02 15:04"}}</p>
+<p class="muted">added {{stamp .Part.CreatedAt}}</p>
+
+{{if .JustUploaded}}{{with .EngravedFile}}
+<div class="banner row">
+  <span>Uploaded and engraved.</span>
+  <a href="/u/{{.PartUID}}/file/{{.ID}}"><button class="primary">Download {{.Filename}}</button></a>
+</div>
+{{end}}{{end}}
 
 {{if .Model}}
 <div id="viewer"></div>
@@ -62,8 +69,8 @@
   <tr>
     <td><a href="/j/{{.ID}}">{{.Printer}}</a></td>
     <td><span class="status-{{.Status}}">{{.Status}}</span></td>
-    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
-    <td class="muted">{{if not .EndedAt.IsZero}}{{.EndedAt.Format "01-02 15:04"}}{{end}}</td>
+    <td class="muted">{{stamp .StartedAt}}</td>
+    <td class="muted">{{stamp .EndedAt}}</td>
     <td class="muted">{{range $k, $v := .Params}}{{$k}}={{$v}} {{end}}</td>
   </tr>
   {{end}}

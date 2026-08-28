@@ -95,23 +95,22 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		lineChoices.Fields[name] = true
 	}
 
-	var firstUID string
+	var uids []string
 	for _, stl := range stls {
 		uid, err := s.createPart(r, project, stl, fields, lineChoices)
 		if err != nil {
 			s.fail(w, r, http.StatusInternalServerError, "could not save "+stl.filename, err)
 			return
 		}
-		if firstUID == "" {
-			firstUID = uid
-		}
+		uids = append(uids, uid)
 	}
 
-	if len(stls) == 1 {
-		http.Redirect(w, r, "/u/"+firstUID, http.StatusSeeOther)
+	// The landing page offers the engraved results back immediately.
+	if len(uids) == 1 {
+		http.Redirect(w, r, "/u/"+uids[0]+"?uploaded=1", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/p/"+project.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/p/"+project.ID+"?uploaded="+strings.Join(uids, ","), http.StatusSeeOther)
 }
 
 // engraveChoices is the checkboxes: which aspects go onto the part. Fields

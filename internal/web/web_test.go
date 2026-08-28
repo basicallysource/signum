@@ -105,9 +105,12 @@ func TestUploadEngraveLookup(t *testing.T) {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("upload answered %d %q\n%s", resp.StatusCode, location, raw)
 	}
-	uid := strings.TrimPrefix(location, "/u/")
+	uid, _, _ := strings.Cut(strings.TrimPrefix(location, "/u/"), "?")
 	if !regexp.MustCompile(`^[a-z0-9]{6}$`).MatchString(uid) {
 		t.Fatalf("redirected to %q, not a uid", location)
+	}
+	if !strings.Contains(location, "uploaded=") {
+		t.Fatalf("upload landing does not announce itself: %q", location)
 	}
 
 	// The part page shows the fields, both files, and the engraving.
@@ -191,12 +194,16 @@ func TestUploadZip(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	// Two STLs means back to the project, which lists both parts -- and
-	// only two: the txt and the resource-fork noise stayed out.
-	if got := resp.Header.Get("Location"); got != "/p/"+projectID {
-		t.Fatalf("zip upload went to %q", got)
+	// Two STLs means back to the project with the fresh uids announced,
+	// and only two parts listed: the txt and resource-fork noise stayed out.
+	location := resp.Header.Get("Location")
+	if !strings.HasPrefix(location, "/p/"+projectID+"?uploaded=") {
+		t.Fatalf("zip upload went to %q", location)
 	}
-	page := get(t, ts, "/p/"+projectID)
+	page := get(t, ts, location)
+	if !strings.Contains(page, "Download them as a zip") {
+		t.Fatalf("no download offer after the upload:\n%s", page)
+	}
 	if got := strings.Count(page, `href="/u/`); got != 2 {
 		t.Fatalf("expected 2 part links, found %d:\n%s", got, page)
 	}
@@ -392,5 +399,72 @@ func TestPagesRequireSignIn(t *testing.T) {
 	jobs.Body.Close()
 	if jobs.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("tokenless jobs api answered %d", jobs.StatusCode)
+	}
+}
+
+func TestDownloadSelectionAsZip(t *testing.T) {
+	ts, _ := newTestServer(t)
+	projectID := createProject(t, ts, "batch")
+
+	var uids []string
+	for _, name := range []string{"alpha.stl", "beta.stl"} {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, _ := form.CreateFormFile("files", name)
+		io.WriteString(part, "solid x\nendsolid x\n")
+		form.WriteField("engrave_uid", "on")
+		form.Close()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/p/"+projectID+"/upload", &body)
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		uid, _, _ := strings.Cut(strings.TrimPrefix(resp.Header.Get("Location"), "/u/"), "?")
+		uids = append(uids, uid)
+	}
+
+	// The selection comes back as one archive of the engraved copies.
+	resp, err := noRedirect.PostForm(ts.URL+"/download",
+		url.Values{"uid": uids, "name": {"batch"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/zip" {
+		t.Fatalf("download answered %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive.File) != 2 {
+		t.Fatalf("archive holds %d files", len(archive.File))
+	}
+	for i, entry := range archive.File {
+		want := []string{"alpha-" + uids[0] + ".stl", "beta-" + uids[1] + ".stl"}[i]
+		if entry.Name != want {
+			t.Fatalf("entry %d is %q, want %q", i, entry.Name, want)
+		}
+		file, _ := entry.Open()
+		content, _ := io.ReadAll(file)
+		file.Close()
+		if !strings.Contains(string(content), "; engraved "+uids[i]) {
+			t.Fatalf("entry %q is not the engraved copy", entry.Name)
+		}
+	}
+
+	// Nothing selected bounces back with a word, not an empty archive.
+	resp, err = noRedirect.PostForm(ts.URL+"/download",
+		url.Values{"back": {"/p/" + projectID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther ||
+		!strings.HasPrefix(resp.Header.Get("Location"), "/p/"+projectID+"?error=") {
+		t.Fatalf("empty selection answered %d -> %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }

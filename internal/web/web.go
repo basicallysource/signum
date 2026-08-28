@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/basicallysource/signum/internal/blob"
 	"github.com/basicallysource/signum/internal/store"
@@ -70,7 +71,22 @@ type Server struct {
 //go:embed templates/*.html static/*
 var files embed.FS
 
-var templates = template.Must(template.ParseFS(files, "templates/*.html"))
+var templates = template.Must(template.New("").Funcs(template.FuncMap{
+	"stamp": timeTag,
+}).ParseFS(files, "templates/*.html"))
+
+// timeTag renders a moment as a <time> element: the datetime attribute
+// carries the truth in UTC, the text is a readable fallback, and a line of
+// script in the page rewrites it into the viewer's own local time -- the
+// server cannot know what clock the reader lives on.
+func timeTag(t time.Time) template.HTML {
+	if t.IsZero() {
+		return ""
+	}
+	utc := t.UTC()
+	return template.HTML(`<time datetime="` + utc.Format(time.RFC3339) + `">` +
+		utc.Format("2006-01-02 15:04") + `</time>`)
+}
 
 // Handler builds the routes.
 func (s *Server) Handler() http.Handler {
@@ -84,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /p/{project}/upload", s.uploadPage)
 	mux.HandleFunc("POST /p/{project}/upload", s.upload)
 
+	mux.HandleFunc("POST /download", s.downloadZip)
 	mux.HandleFunc("GET /u/{uid}", s.partPage)
 	mux.HandleFunc("POST /u/{uid}/engrave", s.reEngrave)
 	mux.HandleFunc("GET /u/{uid}/file/{file}", s.download)

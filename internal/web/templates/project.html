@@ -3,6 +3,17 @@
   <a href="/">projects</a>{{range .Path}} / <a href="/p/{{.ID}}">{{.Name}}</a>{{end}}
 </p>
 <h1>{{.Project.Name}}</h1>
+{{with .Error}}<p class="error">{{.}}</p>{{end}}
+
+{{if .Uploaded}}
+<form method="post" action="/download" class="banner row">
+  <input type="hidden" name="name" value="{{.Project.Name}}">
+  <input type="hidden" name="back" value="/p/{{.Project.ID}}">
+  {{range .Uploaded}}<input type="hidden" name="uid" value="{{.}}">{{end}}
+  <span>{{len .Uploaded}} parts uploaded and engraved.</span>
+  <button class="primary">Download them as a zip</button>
+</form>
+{{end}}
 
 <div class="row" style="margin:0.75rem 0">
   <a href="/p/{{.Project.ID}}/upload"><button class="primary">Upload STLs</button></a>
@@ -13,7 +24,7 @@
 <table>
   {{range .Children}}
   <tr><td><a href="/p/{{.ID}}">{{.Name}}</a></td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td></tr>
+      <td class="muted">{{stamp .CreatedAt}}</td></tr>
   {{end}}
 </table>
 {{end}}
@@ -26,16 +37,35 @@
 
 <h2>parts</h2>
 {{if .Parts}}
-<table>
-  <tr><th>uid</th><th>name</th><th>added</th></tr>
-  {{range .Parts}}
-  <tr>
-    <td class="mono"><a href="/u/{{.UID}}">{{.UID}}</a></td>
-    <td>{{.Name}}</td>
-    <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
-  </tr>
-  {{end}}
-</table>
+<form method="post" action="/download">
+  <input type="hidden" name="name" value="{{.Project.Name}}">
+  <input type="hidden" name="back" value="/p/{{.Project.ID}}">
+  <table>
+    <tr>
+      <th><input type="checkbox" id="select-all" title="select all"></th>
+      <th>uid</th><th>name</th><th>added</th>
+    </tr>
+    {{range .Parts}}
+    <tr>
+      <td><input type="checkbox" name="uid" value="{{.UID}}"></td>
+      <td class="mono"><a href="/u/{{.UID}}">{{.UID}}</a></td>
+      <td>{{.Name}}</td>
+      <td class="muted">{{stamp .CreatedAt}}</td>
+    </tr>
+    {{end}}
+  </table>
+  <div class="row" style="margin-top:0.75rem">
+    <button>Download selected as zip</button>
+  </div>
+</form>
+<script>
+const all = document.getElementById('select-all');
+all.addEventListener('change', () => {
+  for (const box of document.querySelectorAll('input[name="uid"]')) {
+    box.checked = all.checked;
+  }
+});
+</script>
 {{else}}
 <p class="muted">No parts here yet.</p>
 {{end}}

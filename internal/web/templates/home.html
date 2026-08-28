@@ -14,7 +14,7 @@ Type the uid off a physical part:</p>
 <table>
   {{range .Projects}}
   <tr><td><a href="/p/{{.ID}}">{{.Name}}</a></td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td></tr>
+      <td class="muted">{{stamp .CreatedAt}}</td></tr>
   {{end}}
 </table>
 {{else}}
@@ -35,7 +35,7 @@ Type the uid off a physical part:</p>
     <td class="mono"><a href="/j/{{.ID}}">{{.Filename}}</a></td>
     <td>{{.Printer}}</td>
     <td><span class="status-{{.Status}}">{{.Status}}</span></td>
-    <td class="muted">{{.StartedAt.Format "01-02 15:04"}}</td>
+    <td class="muted">{{stamp .StartedAt}}</td>
   </tr>
   {{end}}
 </table>

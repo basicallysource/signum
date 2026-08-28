@@ -15,6 +15,18 @@
 {{end}}
 
 {{define "bottom"}}
+<script>
+/* Times arrive as UTC <time> elements; the reader's browser knows the
+   reader's clock. */
+for (const el of document.querySelectorAll('time[datetime]')) {
+  const d = new Date(el.getAttribute('datetime'));
+  if (isNaN(d)) continue;
+  const day = {month: 'short', day: 'numeric'};
+  if (d.getFullYear() !== new Date().getFullYear()) day.year = 'numeric';
+  el.textContent = d.toLocaleDateString([], day) + ', ' +
+    d.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+}
+</script>
 </body>
 </html>
 {{end}}

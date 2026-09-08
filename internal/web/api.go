@@ -65,7 +65,7 @@ func (s *Server) verifyToken(ctx context.Context, bearer string) (Viewer, error)
 		return cached.viewer, nil
 	}
 
-	viewer, err := whoami(ctx, s.Identity, bearer)
+	viewer, err := whoami(ctx, s.Identity, bearer, strings.TrimRight(s.BaseURL, "/"))
 	if err != nil {
 		return Viewer{}, err
 	}
@@ -94,7 +94,7 @@ type verifiedTokens struct {
 }
 
 // whoami is the identity service integration, in its entirety.
-func whoami(ctx context.Context, base, bearer string) (Viewer, error) {
+func whoami(ctx context.Context, base, bearer, audience string) (Viewer, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimSuffix(base, "/")+"/v1/whoami", nil)
 	if err != nil {
@@ -115,9 +115,15 @@ func whoami(ctx context.Context, base, bearer string) (Viewer, error) {
 	var body struct {
 		Account string `json:"account"`
 		Handle  string `json:"handle"`
+		Token   struct {
+			Audience string `json:"audience"`
+		} `json:"token"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil || body.Account == "" {
 		return Viewer{}, fmt.Errorf("web: unreadable identity answer")
+	}
+	if body.Token.Audience != "" && body.Token.Audience != audience {
+		return Viewer{}, fmt.Errorf("web: token belongs to another application")
 	}
 	return Viewer{Account: body.Account, Handle: body.Handle}, nil
 }

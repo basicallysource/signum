@@ -42,7 +42,10 @@ throwing it out:
 - **Identity is not this service's problem.** Sign-in is the identity
   service: this server accepts its opaque bearer tokens and asks its
   `/v1/whoami` who a token belongs to (cached briefly). Accounts here are
-  identity account ids. Local/desktop mode has no accounts at all.
+  identity account ids. Application tokens must name this service's origin as
+  their audience; tokens issued for another application are refused before
+  caching. Account tokens remain usable by the operator and watcher CLI.
+  Local/desktop mode has no accounts at all.
 - **The engraver is pure Go and boolean-free** (`engrave/`). It re-triangulates
   the one planar facet a pocket intrudes into rather than running a general
   mesh boolean, because no trustworthy manifold/CSG library exists in pure Go

@@ -64,6 +64,9 @@ never be a separate stylesheet.
 - **Tables**: full-width, no zebra striping, `--line` bottom rules, headers
   in `--muted` 0.82rem. Numbers right-aligned.
 - **Links**: `--accent`, no underline until hover.
+- **Nav**: the product name, the sections, and, signed in, the handle and
+  `sign out` at the far right in `--muted`. Sign-out is a POST, so a form
+  whose button is set like a nav word, never a link.
 - **Status**: plain words in `--ok`/`--danger`/`--muted` ("printing",
   "failed", "idle"), no badges, no pills.
 

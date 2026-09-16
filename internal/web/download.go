@@ -21,7 +21,7 @@ func (s *Server) downloadZip(w http.ResponseWriter, r *http.Request) {
 	uids := r.Form["uid"]
 	if len(uids) == 0 {
 		back := r.FormValue("back")
-		if !strings.HasPrefix(back, "/") || strings.HasPrefix(back, "//") {
+		if !projectPage.MatchString(back) {
 			back = "/"
 		}
 		http.Redirect(w, r, back+"?error=nothing+was+selected", http.StatusSeeOther)
@@ -92,6 +92,11 @@ func (s *Server) printableFile(r *http.Request, uid string) (store.PartFile, boo
 	}
 	return chosen, chosen.ID != "", nil
 }
+
+// projectPage is the one place a selection is made, so the only place an
+// empty one goes back to. Anything else goes home: a path that merely starts
+// with a slash can still name another host to a browser.
+var projectPage = regexp.MustCompile(`^/p/[0-9a-f]+$`)
 
 var unsafeFilename = regexp.MustCompile(`[^A-Za-z0-9._ -]+`)
 

@@ -10,8 +10,10 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/basicallysource/identity/client"
 	"github.com/basicallysource/signum/internal/blob"
 	"github.com/basicallysource/signum/internal/store"
 )
@@ -63,9 +65,10 @@ type Server struct {
 	// BaseURL is where this instance lives publicly, for identity's
 	// redirect back. Required when Identity is set.
 	BaseURL string
-	Logger  *slog.Logger
-
-	verified verifiedTokens
+	// SessionKey seals the session cookie: 32 random bytes, required when
+	// Identity is set. Changing it signs everybody out.
+	SessionKey []byte
+	Logger     *slog.Logger
 }
 
 //go:embed templates/*.html static/*
@@ -88,37 +91,58 @@ func timeTag(t time.Time) template.HTML {
 		utc.Format("2006-01-02 15:04") + `</time>`)
 }
 
-// Handler builds the routes.
-func (s *Server) Handler() http.Handler {
+// Handler builds the routes. With an identity service configured, every
+// page requires sign-in through identity's client package, which also owns
+// /auth/signin, /auth/callback, /auth/signout and /auth/me. The jobs API
+// checks its own bearer tokens (see tokenGate for why), and static assets and
+// healthz answer to anybody.
+func (s *Server) Handler() (http.Handler, error) {
+	pages := http.NewServeMux()
+	pages.HandleFunc("GET /{$}", s.home)
+
+	pages.HandleFunc("POST /projects", s.createProject)
+	pages.HandleFunc("GET /p/{project}", s.projectPage)
+	pages.HandleFunc("GET /p/{project}/upload", s.uploadPage)
+	pages.HandleFunc("POST /p/{project}/upload", s.upload)
+
+	pages.HandleFunc("POST /download", s.downloadZip)
+	pages.HandleFunc("GET /u/{uid}", s.partPage)
+	pages.HandleFunc("POST /u/{uid}/engrave", s.reEngrave)
+	pages.HandleFunc("GET /u/{uid}/file/{file}", s.download)
+	pages.HandleFunc("POST /lookup", s.lookup)
+
+	pages.HandleFunc("GET /printers", s.printersPage)
+	pages.HandleFunc("GET /j/{job}", s.jobPage)
+
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /{$}", s.home)
 	mux.Handle("GET /static/", http.FileServerFS(files))
-
-	mux.HandleFunc("POST /projects", s.createProject)
-	mux.HandleFunc("GET /p/{project}", s.projectPage)
-	mux.HandleFunc("GET /p/{project}/upload", s.uploadPage)
-	mux.HandleFunc("POST /p/{project}/upload", s.upload)
-
-	mux.HandleFunc("POST /download", s.downloadZip)
-	mux.HandleFunc("GET /u/{uid}", s.partPage)
-	mux.HandleFunc("POST /u/{uid}/engrave", s.reEngrave)
-	mux.HandleFunc("GET /u/{uid}/file/{file}", s.download)
-	mux.HandleFunc("POST /lookup", s.lookup)
-
-	mux.HandleFunc("GET /printers", s.printersPage)
-	mux.HandleFunc("GET /j/{job}", s.jobPage)
-
-	mux.HandleFunc("POST /api/jobs", s.recordJob)
-	mux.HandleFunc("GET /auth/callback", s.authCallback)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
 
-	if s.Identity != "" {
-		return s.requireSession(mux)
+	if s.Identity == "" {
+		mux.HandleFunc("POST /api/jobs", s.recordJob)
+		mux.Handle("/", pages)
+		return mux, nil
 	}
-	return mux
+
+	auth, err := client.New(client.Config{
+		IdentityURL: s.Identity,
+		BaseURL:     s.BaseURL,
+		Key:         s.SessionKey,
+		Logger:      s.logger(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	tokens, err := newTokenGate(s.Identity, strings.TrimRight(s.BaseURL, "/"), s.logger())
+	if err != nil {
+		return nil, err
+	}
+	auth.Routes(mux)
+	mux.Handle("POST /api/jobs", tokens.require(http.HandlerFunc(s.recordJob)))
+	mux.Handle("/", auth.Require(pages))
+	return mux, nil
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -133,8 +157,8 @@ func (s *Server) logger() *slog.Logger {
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data any) {
 	if page, ok := data.(map[string]any); ok {
 		if _, exists := page["Viewer"]; !exists {
-			if viewer, ok := viewerFrom(r.Context()); ok {
-				page["Viewer"] = viewer
+			if who, ok := client.WhoFrom(r.Context()); ok {
+				page["Viewer"] = who
 			}
 		}
 	}

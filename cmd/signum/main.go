@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -66,7 +67,8 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  signum serve    [--addr :8860] [--data DIR] [--identity URL] [--base URL]
+  signum serve    [--addr :8860] [--data DIR] [--identity URL --base URL]
+                  (with --identity, SIGNUM_SESSION_KEY: 32 random bytes as hex)
   signum desktop  [--addr 127.0.0.1:8860] [--data DIR] [--printers printers.json]
   signum watch    --server URL [--token T] [--interval 10s] --printers printers.json`)
 }
@@ -113,14 +115,28 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 	if *identity != "" && *base == "" {
 		return errors.New("an identity service needs --base (or SIGNUM_BASE) for the sign-in redirect")
 	}
+	// The session key is a secret, so it comes only from the environment:
+	// a command line is readable by anyone on the machine.
+	var sessionKey []byte
+	if *identity != "" {
+		sessionKey, err = hex.DecodeString(os.Getenv("SIGNUM_SESSION_KEY"))
+		if err != nil || len(sessionKey) != 32 {
+			return errors.New("an identity service needs SIGNUM_SESSION_KEY: 32 random bytes as hex, as openssl rand -hex 32 makes")
+		}
+	}
 
 	server := &web.Server{
-		Store:    db,
-		Blobs:    blob.Dir{Root: filepath.Join(dir, "blobs")},
-		Engrave:  newEngraver(filepath.Join(dir, "fonts")),
-		Identity: strings.TrimSuffix(*identity, "/"),
-		BaseURL:  strings.TrimSuffix(*base, "/"),
-		Logger:   logger,
+		Store:      db,
+		Blobs:      blob.Dir{Root: filepath.Join(dir, "blobs")},
+		Engrave:    newEngraver(filepath.Join(dir, "fonts")),
+		Identity:   strings.TrimSuffix(*identity, "/"),
+		BaseURL:    strings.TrimSuffix(*base, "/"),
+		SessionKey: sessionKey,
+		Logger:     logger,
+	}
+	handler, err := server.Handler()
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -143,7 +159,7 @@ func serve(logger *slog.Logger, args []string, desktop bool) error {
 
 	httpServer := &http.Server{
 		Addr:              *addr,
-		Handler:           server.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

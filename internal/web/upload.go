@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/basicallysource/identity/client"
 	"github.com/basicallysource/signum/internal/store"
 )
 
@@ -28,8 +29,8 @@ func (s *Server) uploadPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "could not read the project", err)
 		return
 	}
-	viewer, _ := viewerFrom(r.Context())
-	suggestions, _ := s.Store.FieldNamesUsedBy(r.Context(), viewer.Account)
+	who, _ := client.WhoFrom(r.Context())
+	suggestions, _ := s.Store.FieldNamesUsedBy(r.Context(), who.Account)
 	s.render(w, r, "upload.html", map[string]any{
 		"Project":     project,
 		"Suggestions": suggestions,
@@ -159,10 +160,10 @@ func (s *Server) createPart(r *http.Request, project store.Project, stl incoming
 		return "", err
 	}
 
-	viewer, _ := viewerFrom(r.Context())
+	who, _ := client.WhoFrom(r.Context())
 	name := strings.TrimSuffix(stl.filename, path.Ext(stl.filename))
 	part, err := s.Store.CreatePart(r.Context(),
-		store.Part{ProjectID: project.ID, Name: name, CreatedBy: viewer.Account},
+		store.Part{ProjectID: project.ID, Name: name, CreatedBy: who.Account},
 		[]store.PartFile{{Kind: store.FileSource, Filename: stl.filename, SHA256: sum, Size: size}},
 		fields)
 	if err != nil {

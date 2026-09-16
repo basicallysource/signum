@@ -2,30 +2,24 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/basicallysource/identity/api"
 	"github.com/basicallysource/signum/internal/printwatch"
 )
 
 // recordJob is what a watch agent posts to. With an identity service
-// configured, the agent's bearer token must verify there; without one (the
-// desktop app, a server behind its own front door) the endpoint is open.
+// configured it sits behind a tokenGate; without one (the desktop app, a
+// server behind its own front door) the endpoint is open.
 func (s *Server) recordJob(w http.ResponseWriter, r *http.Request) {
-	if s.Identity != "" {
-		if _, err := s.verifyBearer(r); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "a live identity token is required"})
-			return
-		}
-	}
-
 	var job printwatch.Job
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&job); err != nil {
 		http.Error(w, "send one printwatch job as JSON", http.StatusBadRequest)
@@ -44,86 +38,103 @@ func (s *Server) recordJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// verifyBearer resolves an Authorization header the way verifyToken resolves
-// any token.
-func (s *Server) verifyBearer(r *http.Request) (Viewer, error) {
-	bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || strings.TrimSpace(bearer) == "" {
-		return Viewer{}, fmt.Errorf("web: no bearer token")
-	}
-	return s.verifyToken(r.Context(), strings.TrimSpace(bearer))
+// tokenGate is the machine API's bearer check. It is separate from the
+// identity client package that gates the pages on purpose: a watcher holds
+// an account token, minted at identity for it and carrying no audience, and
+// the client package accepts only tokens handed off to this service, which
+// is right for a browser session and would lock every watcher out here. So
+// this asks identity directly and accepts a token minted for this service or
+// for no service at all. A token handed off to another application is
+// refused: that application holds it, and must not be able to act here with
+// it.
+type tokenGate struct {
+	identity *api.ClientWithResponses
+	audience string
+	logger   *slog.Logger
+
+	mu sync.Mutex
+	// verified remembers accepted tokens, by hash, for a minute: a watcher
+	// coming back reports a burst of jobs, and revocation within a minute is
+	// still revocation. Refusals are never remembered.
+	verified map[[sha256.Size]byte]time.Time
 }
 
-// verifyToken asks the identity service who a token is. Answers are cached
-// for a minute: a printing bed reports many events and a browser loads many
-// pages, and revocation within a minute is still revocation.
-func (s *Server) verifyToken(ctx context.Context, bearer string) (Viewer, error) {
-	s.verified.mu.Lock()
-	cached, ok := s.verified.entries[bearer]
-	s.verified.mu.Unlock()
-	if ok && time.Now().Before(cached.until) {
-		return cached.viewer, nil
-	}
-
-	viewer, err := whoami(ctx, s.Identity, bearer, strings.TrimRight(s.BaseURL, "/"))
+func newTokenGate(identityURL, audience string, logger *slog.Logger) (*tokenGate, error) {
+	identity, err := api.NewClientWithResponses(identityURL,
+		api.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}))
 	if err != nil {
-		return Viewer{}, err
+		return nil, err
 	}
-
-	s.verified.mu.Lock()
-	if s.verified.entries == nil {
-		s.verified.entries = make(map[string]verdict)
-	}
-	if len(s.verified.entries) > 1024 {
-		clear(s.verified.entries)
-	}
-	s.verified.entries[bearer] = verdict{viewer: viewer, until: time.Now().Add(time.Minute)}
-	s.verified.mu.Unlock()
-	return viewer, nil
+	return &tokenGate{
+		identity: identity,
+		audience: audience,
+		logger:   logger,
+		verified: map[[sha256.Size]byte]time.Time{},
+	}, nil
 }
 
-type verdict struct {
-	viewer Viewer
-	until  time.Time
+// require answers 401 to a missing or refused token and 503 when identity
+// cannot be asked, which says nothing about the token.
+func (g *tokenGate) require(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		token = strings.TrimSpace(token)
+		accepted := false
+		if ok && token != "" {
+			var err error
+			if accepted, err = g.accepts(r.Context(), token); err != nil {
+				g.logger.Warn("identity whoami for the jobs API", "error", err)
+				apiError(w, http.StatusServiceUnavailable, "the identity service is unavailable; try again shortly")
+				return
+			}
+		}
+		if !accepted {
+			apiError(w, http.StatusUnauthorized, "a live identity token is required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
-// verifiedTokens is the cache; it lives on the Server.
-type verifiedTokens struct {
-	mu      sync.Mutex
-	entries map[string]verdict
-}
+// accepts reports whether identity vouches for the token here. An error
+// means identity could not be asked.
+func (g *tokenGate) accepts(ctx context.Context, token string) (bool, error) {
+	key := sha256.Sum256([]byte(token))
+	g.mu.Lock()
+	until, ok := g.verified[key]
+	g.mu.Unlock()
+	if ok && time.Now().Before(until) {
+		return true, nil
+	}
 
-// whoami is the identity service integration, in its entirety.
-func whoami(ctx context.Context, base, bearer, audience string) (Viewer, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.TrimSuffix(base, "/")+"/v1/whoami", nil)
+	resp, err := g.identity.WhoamiWithResponse(ctx, func(_ context.Context, req *http.Request) error {
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
+	})
 	if err != nil {
-		return Viewer{}, err
+		return false, err
 	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return Viewer{}, fmt.Errorf("web: reach the identity service: %w", err)
+	if resp.StatusCode() == http.StatusUnauthorized {
+		return false, nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return Viewer{}, fmt.Errorf("web: the identity service answered %d", resp.StatusCode)
+	if resp.JSON200 == nil {
+		return false, fmt.Errorf("web: the identity service answered %d", resp.StatusCode())
+	}
+	if audience := resp.JSON200.Token.Audience; audience != "" && audience != g.audience {
+		return false, nil
 	}
 
-	var body struct {
-		Account string `json:"account"`
-		Handle  string `json:"handle"`
-		Token   struct {
-			Audience string `json:"audience"`
-		} `json:"token"`
+	g.mu.Lock()
+	if len(g.verified) > 1024 {
+		clear(g.verified)
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil || body.Account == "" {
-		return Viewer{}, fmt.Errorf("web: unreadable identity answer")
-	}
-	if body.Token.Audience != "" && body.Token.Audience != audience {
-		return Viewer{}, fmt.Errorf("web: token belongs to another application")
-	}
-	return Viewer{Account: body.Account, Handle: body.Handle}, nil
+	g.verified[key] = time.Now().Add(time.Minute)
+	g.mu.Unlock()
+	return true, nil
+}
+
+func apiError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }

@@ -10,7 +10,8 @@
 <nav>
   <a href="/">signum</a>
   <a href="/printers">printers</a>
-  {{with .Viewer}}<span class="muted" style="margin-left:auto">{{.Handle}}</span>{{end}}
+  {{with .Viewer}}<span class="muted" style="margin-left:auto">{{.Handle}}</span>
+  <form method="post" action="/auth/signout"><button class="signout">sign out</button></form>{{end}}
 </nav>
 {{end}}
 

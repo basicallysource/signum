@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/basicallysource/identity/client"
 	"github.com/basicallysource/signum/internal/store"
 )
 
@@ -41,9 +42,9 @@ func (s *Server) lookup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
-	viewer, _ := viewerFrom(r.Context())
+	who, _ := client.WhoFrom(r.Context())
 	parent := r.FormValue("parent")
-	project, err := s.Store.CreateProject(r.Context(), parent, viewer.Account, r.FormValue("name"))
+	project, err := s.Store.CreateProject(r.Context(), parent, who.Account, r.FormValue("name"))
 	if err != nil {
 		s.fail(w, r, http.StatusBadRequest, "could not create the project", err)
 		return

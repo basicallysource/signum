@@ -40,12 +40,23 @@ throwing it out:
 ## Committed decisions
 
 - **Identity is not this service's problem.** Sign-in is the identity
-  service: this server accepts its opaque bearer tokens and asks its
-  `/v1/whoami` who a token belongs to (cached briefly). Accounts here are
-  identity account ids. Application tokens must name this service's origin as
-  their audience; tokens issued for another application are refused before
-  caching. Account tokens remain usable by the operator and watcher CLI.
-  Local/desktop mode has no accounts at all.
+  service, and accounts here are identity account ids. Local/desktop mode has
+  no accounts at all.
+
+  The pages sign in through identity's Go client package
+  (`github.com/basicallysource/identity/client`), imported, never copied:
+  PKCE, the token sealed in an HttpOnly cookie under a session key from the
+  environment, whoami rechecked every few minutes, and a sign-out in the nav
+  that ends the sign-in at identity and so on every service it reached. Every
+  page requires it; a person already signed in at identity passes through it
+  and straight back without a click.
+
+  The jobs API (`/api/`) keeps its own small bearer check (`tokenGate`),
+  because a watcher authenticates with an account token, which carries no
+  audience, and the client package refuses account tokens by design. It
+  accepts an account token or a token handed off to this service's origin,
+  refuses one handed off to any other application, remembers an acceptance
+  for a minute, and answers 503 rather than 401 when identity cannot be asked.
 - **The engraver is pure Go and boolean-free** (`engrave/`). It re-triangulates
   the one planar facet a pocket intrudes into rather than running a general
   mesh boolean, because no trustworthy manifold/CSG library exists in pure Go

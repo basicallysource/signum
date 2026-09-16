@@ -17,7 +17,15 @@ One Go binary:
 
 Sign-in, when you want it, is "sign in with GitHub or Discord" through the
 [identity service](https://github.com/basicallysource/identity); this service
-never sees a password.
+never sees a password. To host it that way:
+
+    signum serve --identity https://identity.example --base https://signum.example
+
+with `SIGNUM_SESSION_KEY` in the server's environment: 32 random bytes as
+hex, made once with `openssl rand -hex 32`. It seals the session cookie, so
+keep it secret and keep it: changing it signs everybody out. The identity
+service must allow `https://signum.example/auth/callback` as a redirect. A
+watcher reports with an identity account token (`signum watch --token`).
 
 Early. The engraver and the upload flow land first; printer drivers are
 growing one at a time. See `agent-docs/architecture.md` for how it is put
